@@ -142,15 +142,26 @@ but also larger verification shares and slower DKG.
 
 ---
 
-## 7. Formal Security Proof [LOW PRIORITY, HIGH VALUE]
+## 7. Formal Security Proof [IN PROGRESS]
 
-**The problem:** The security argument is currently informal (this design
-document). A formal proof in the Universal Composability (UC) framework
-would provide the strongest possible guarantee.
+**The problem:** The security argument needs formal treatment at two levels:
+game-based composition (concrete bounds) and Universal Composability (UC)
+for strongest guarantees under concurrent execution.
 
-**Proof components needed:**
-- Multi-path XOR key agreement: security in bounded eavesdropping model
-- Peer introduction: composable security from pairwise ITS channels
-- Shamir DKG: ITS security with honest majority
-- USS: ITS unforgeability and non-repudiation
-- Composition: the full chain maintains ITS under concurrent operation
+**Current status:** A research-grade composition proof with concrete bounds exists in
+[COMPOSITION_PROOF.md](COMPOSITION_PROOF.md) — 20 theorems covering:
+- Multi-path XOR key agreement: perfect secrecy from route diversity (Theorem 3.1)
+- Liu channel: exact min-entropy degradation from non-uniform PSK (Theorem 3.3)
+- Peer introduction: ITS from XOR of honest component (Theorem 3.4)
+- Shamir DKG: perfect privacy with honest majority (Theorem 3.5)
+- DKG distributed verification: formal BGW88-style protocol (Theorem 3.6)
+- USS: 1/M61 unforgeability per attempt, deterministic non-repudiation (Theorems 3.8-3.9)
+- Sybil resistance: self-contained PPR flow proof with explicit constants (Theorem 2.6)
+- End-to-end composition: epsilon_total ~ 7.2 * 10^-11 at recommended operating point (Theorem 4.1)
+
+**What remains:**
+- UC framework formalization (ideal functionalities, simulator construction)
+- Adaptive corruption analysis (current proof assumes static corruption)
+- Concurrent epoch transition composability
+- Liu physics model validation against real hardware
+- DKG overlay density: min degree >= 2n/3 for single-round verification

@@ -3,7 +3,7 @@
 **Decentralized information-theoretically secure digital signatures over standard internet infrastructure.**
 
 No quantum hardware. No special hardware. No computational hardness assumptions.
-Three primitives. One finite field. Instant join.
+Three primitives. One finite field. Fast join.
 
 > **Status: research prototype.** The claims below are strong. Each primitive
 > (Shamir, USS, Liu, PageRank) has individual theoretical grounding, and
@@ -12,8 +12,9 @@ Three primitives. One finite field. Instant join.
 > scrutiny before anyone should trust it with real value:
 >
 > - No independent security audit has been performed
-> - The formal composition proof (three primitives interacting across six
->   protocol layers) has not been written
+> - The formal composition proof ([COMPOSITION_PROOF.md](COMPOSITION_PROOF.md))
+>   provides concrete security bounds (epsilon ~ 7 * 10^-11 per epoch) but
+>   is not a UC-framework formalization
 > - The system has not been tested over real networks — all tests run
 >   in-process
 > - Adversary models in simulation may not capture all real-world attack
@@ -62,7 +63,8 @@ The entire system is built from three things:
   more evaluation points than any adversary holds.
 
 - **Liu MAC authentication**: evaluate polynomial at secret point.
-  Forgery probability: d/M61 ~ 5x10^-14 per message.
+  Forgery probability: L/M61 per message, where L is message length
+  in field elements (~10^-15 for typical L ~ 10^3).
 
 Same operation (polynomial evaluation), same field (M61), three uses.
 
@@ -89,9 +91,11 @@ Each node computes trust from its own position in the Liu channel graph
 via personalized PageRank. No founding members. No global authority.
 Trust is local, subjective, and emergent.
 
-Sybil resistance: an attacker's trust is bounded by their connections
-to honest nodes (attack edges), regardless of how many fake identities
-they create. Proven by SybilRank (Yu et al. 2006).
+Sybil resistance: an attacker's total trust is bounded by
+`d * a / ((1-d) * delta_min)` where a = attack edges and delta_min =
+minimum honest degree. Regardless of how many fake identities they create.
+Self-contained proof from PPR flow analysis in
+[COMPOSITION_PROOF.md](COMPOSITION_PROOF.md) (Theorem 2.6).
 
 ---
 
@@ -178,6 +182,9 @@ No seed phrase. No single point of failure. Better than today.
 ---
 
 ## Security
+
+Formal security analysis with concrete bounds: [COMPOSITION_PROOF.md](COMPOSITION_PROOF.md)
+(20 theorems, epsilon_total ~ 7.2 * 10^-11 per epoch at recommended operating point).
 
 ### What Cannot Break This
 
@@ -403,6 +410,7 @@ Dependency: [Liup](https://github.com/noospheer/Liup) — the Liu protocol ITS k
 ```
 Liun/
 ├── README.md                          # This file
+├── COMPOSITION_PROOF.md               # Formal security proof (20 theorems)
 ├── DESIGN.md                          # Detailed architecture
 ├── THREAT_MODEL.md                    # Attack analysis
 ├── OPEN_PROBLEMS.md                   # Remaining research questions
@@ -887,9 +895,16 @@ PYTHONPATH=../Liup/src:. python3 -m pytest tests/ -v -m "not slow"
 ```
 
 ### What needs verification
-- Formal composition proof (three primitives, six protocol layers)
-- Graph mixing properties of real Liu channel networks
-- Internet path diversity measurements for bootstrap
+
+The [composition proof](COMPOSITION_PROOF.md) provides concrete bounds
+(20 theorems, epsilon_total ~ 7.2 * 10^-11 at recommended operating point).
+What remains:
+
+- UC-framework formalization (current proof uses game-based composition with union bounds)
+- Liu physics model validation against real hardware (min-entropy per step taken as given)
+- Internet path diversity measurements for bootstrap route independence
+- Honest subgraph mixing time for Sybil bound tightening (Theorem 2.6)
+- DKG overlay density requirement (min degree >= 2n/3 for single-round verification)
 - Multi-node deployment over real TCP (StreamServer/StreamClient instead of StreamPipe)
 
 ---

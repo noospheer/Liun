@@ -329,7 +329,7 @@ See [OPEN_PROBLEMS.md](OPEN_PROBLEMS.md) for detailed analysis.
 3. **Optimal path selection** — internet topology-aware route diversity
 4. **Epoch transition** — seamless re-dealing of signing polynomials
 5. **Scale testing** — performance at 100, 1000, 10000 nodes
-6. **Formal composition proof** — UC framework proof that all primitives compose securely
+6. **Formal composition proof** — UC framework formalization. Current proof: [COMPOSITION_PROOF.md](COMPOSITION_PROOF.md) (20 theorems, concrete bounds, game-based composition)
 
 ---
 
