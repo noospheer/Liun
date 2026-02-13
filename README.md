@@ -224,29 +224,126 @@ No seed phrase. No single point of failure. Better than today.
 
 ---
 
-## Ethereum Migration Path
+## How Ethereum Could Use This
+
+Ethereum's entire security rests on one assumption: that the discrete
+logarithm problem is hard. If it isn't — quantum computers, mathematical
+breakthrough, or an attack nobody has thought of yet — every wallet key,
+every signed transaction, every finalized block becomes forgeable.
+Retroactively. Permanently.
+
+Liun replaces that single point of failure. Here's concretely what changes
+and what doesn't.
+
+### What stays identical
+
+| Component | Changes? | Why |
+|-----------|----------|-----|
+| EVM | No | Liun replaces the signature layer, not the execution layer |
+| Solidity / smart contracts | No | Contracts don't touch signature internals |
+| ERC-20, ERC-721, all token standards | No | Token logic is EVM, not crypto |
+| Gas model, fee market, EIP-1559 | No | Economic layer is independent of key type |
+| State trie, Merkle Patricia | No | Data structures don't depend on signature scheme |
+| JSON-RPC, web3.js, ethers.js | Thin wrapper | API calls carry a Liun signature instead of ECDSA `v,r,s` |
+| MetaMask, wallets | UI unchanged | Backend swaps ECDSA signing for Liun partial signing |
+| DeFi protocols (Uniswap, Aave, etc.) | No | They verify `msg.sender`, which still works |
+
+### What changes
+
+**One thing: how transactions are signed and how blocks are finalized.**
 
 ```
-Phase 1: Sidechain
-         Liun runs alongside ETH mainnet
-         Bridge assets for ITS-secured transfers
+Today (Ethereum):
+  User has ECDSA private key (256 bits)
+  Signs tx: sig = ECDSA_sign(privkey, tx_hash)
+  Validator checks: ECDSA_verify(pubkey, tx_hash, sig)
+  Block finality: 2/3 of stake signs with ECDSA
+  Security: "we assume discrete log is hard"
 
-Phase 2: Dual validation
-         Validators run both ECDSA and Liun consensus
-         Blocks finalized by both systems
-
-Phase 3: Primary
-         Liun consensus becomes primary
-         ECDSA deprecated
-
-Phase 4: Post-quantum
-         Quantum computers arrive
-         ECDSA-only chains break
-         Liun is unaffected
+With Liun:
+  User has Liu channels to k peers (ITS key material flowing)
+  Signs tx: peers MAC-authenticate tx over Liu channels
+  Trust-weighted attestations: "Alice authorized this"
+  Block finality: 2/3 of trust-weighted nodes sign with USS
+  Security: "Shannon proved this is secure" — no assumption
 ```
 
-Application layer unchanged: EVM, smart contracts, ERC-20, gas, fees,
-DeFi — all identical. Only the cryptographic substrate swaps.
+**Transaction authentication** replaces individual private keys with
+peer-attested Liu MACs:
+
+```
+Alice wants to send 10 ETH to Bob.
+
+1. Alice constructs tx = {from: Alice, to: Bob, value: 10 ETH, nonce: 42}
+
+2. Alice authenticates tx to each of her Liu channel peers:
+   tag_i = MAC(tx, key_i)    ← ITS: unforgeable even by quantum computer
+   Sends (tx, tag_i) to peer_i
+
+3. Each peer verifies the MAC and attests:
+   "I confirm Alice authorized this transaction"
+
+4. Trust-weighted attestations collected:
+   Σ trust(peer_i) > threshold  →  tx accepted into mempool
+
+5. Block proposer includes tx. Committee signs block with USS:
+   σ = Combine(partial_sign(block, share_i) for i in committee)
+
+6. Block finalized. ITS guarantee:
+   - Alice's tx cannot be forged (Liu MAC is ITS)
+   - Block signature cannot be forged (USS is ITS)
+   - No future computer can retroactively break either
+```
+
+**Block finality** replaces BLS aggregate signatures with USS threshold
+signatures:
+
+```
+Today:                              With Liun:
+─────                               ─────────
+Each validator has BLS privkey      Each validator has Shamir share
+Validators sign: BLS_sign(block)    Validators sign: partial_sign(block, share_i)
+Aggregate: BLS_aggregate(sigs)      Combine: lagrange_interpolate(partials)
+Verify: BLS_verify(agg_pubkey)      Verify: USS polynomial consistency check
+Security: BLS hardness (assumed)    Security: polynomial secrecy (proven)
+Sig size: 96 bytes                  Sig size: 8 bytes
+```
+
+**Key generation** replaces individual key generation with distributed
+key generation over ITS channels:
+
+```
+Today:                              With Liun:
+─────                               ─────────
+Validator runs: privkey = random()  N validators run DKG over Liu channels
+Nobody else involved                Each contributes random polynomial
+Single point of failure             Nobody sees the combined signing key
+Lose key = lose everything          Lose node = social recovery via peers
+```
+
+### Wallet recovery
+
+Today: lose your seed phrase, lose everything. Forever.
+
+With Liun: your peers know you. Your Liu channels are your identity.
+
+```
+1. Alice loses her node
+2. Alice contacts peers B1, B2, B3 from a new device
+3. Peers verify Alice via out-of-band confirmation
+4. Peers re-establish Liu channels with Alice's new node
+5. New DKG epoch: Alice receives new signing share
+6. Alice is back. No seed phrase was ever needed.
+```
+
+### The bottom line
+
+Every layer of the Ethereum stack above the signature primitive —
+EVM, contracts, tokens, DeFi, the entire application ecosystem —
+works unchanged. The only thing that changes is *how you prove you
+authorized something*. Today that proof rests on an unproven mathematical
+conjecture. With Liun it rests on Shannon's theorem. Everything else
+is the same, except now a quantum computer can't steal your ETH.
 
 ---
 
@@ -771,7 +868,7 @@ PYTHONPATH=../Liup/src:. python3 -m pytest tests/ -v -m "not slow"
 ```
 
 ### What needs verification
-- Formal composition proof (5 primitives together)
+- Formal composition proof (three primitives, six protocol layers)
 - Graph mixing properties of real Liu channel networks
 - Internet path diversity measurements for bootstrap
 - Multi-node deployment over real TCP (StreamServer/StreamClient instead of StreamPipe)
