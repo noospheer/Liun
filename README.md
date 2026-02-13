@@ -5,6 +5,25 @@
 No quantum hardware. No special hardware. No computational hardness assumptions.
 Three primitives. One finite field. Instant join.
 
+> **Status: research prototype.** The claims below are strong. Each primitive
+> (Shamir, USS, Liu, PageRank) has individual theoretical grounding, and
+> the 266 tests verify algebraic correctness at scale. But a composed system
+> making information-theoretic security claims needs substantially more
+> scrutiny before anyone should trust it with real value:
+>
+> - No independent security audit has been performed
+> - The formal composition proof (three primitives interacting across six
+>   protocol layers) has not been written
+> - The system has not been tested over real networks — all tests run
+>   in-process
+> - Adversary models in simulation may not capture all real-world attack
+>   surfaces
+> - Performance at production scale (thousands of nodes, real TCP, sustained
+>   load) is uncharacterized
+>
+> We publish this openly because the architecture may be sound and we want
+> scrutiny, not because it is ready for deployment. Read critically.
+
 ---
 
 ## The Problem
