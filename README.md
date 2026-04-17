@@ -44,8 +44,8 @@ cargo build --release     # build everything
 ./target/release/liun-node --data-dir ~/.liun init            # interactive wizard
 ./target/release/liun-node --data-dir ~/.liun init --defaults # non-interactive
 
-# Run the node (auto-generates 384-bit identity on first run if init wasn't used):
-./target/release/liun-node --listen 0.0.0.0:7767
+# Run the node — joins the network automatically via hardcoded genesis seed:
+./target/release/liun-node --listen 0.0.0.0:7767 --dht-listen 0.0.0.0:7767
 
 # Connect directly to a known peer address:
 ./target/release/liun-node --listen 0.0.0.0:7768 --peer 192.168.1.50:7767

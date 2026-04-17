@@ -143,6 +143,16 @@ struct DhtSeed {
 
 fn default_n_nodes() -> usize { 10 }
 
+/// Genesis seed node (EC2 us-east-1). Hardcoded so new nodes join the
+/// network with zero configuration. Additional seeds can be added via
+/// config.toml; these are just the bootstrap fallback.
+const GENESIS_SEEDS: &[(&str, &str)] = &[
+    (
+        "77TEJQcw1YN1W15urs1kcYZLuw7j5uFu6hwRSzYWiqjN5Z1QN462LeQh6pcxMgmont",
+        "3.95.56.143:7767",
+    ),
+];
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -150,7 +160,13 @@ impl Default for Config {
             batch_size: 100_000,
             bootstrap_peers: Vec::new(),
             n_nodes: 10,
-            dht_seeds: Vec::new(),
+            dht_seeds: GENESIS_SEEDS
+                .iter()
+                .map(|(id, addr)| DhtSeed {
+                    id: id.to_string(),
+                    addr: addr.to_string(),
+                })
+                .collect(),
         }
     }
 }
