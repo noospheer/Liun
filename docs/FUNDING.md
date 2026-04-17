@@ -83,24 +83,31 @@ aggregator" distinction to manage — the daemon handles everything.
 
 ## Why Sybils earn nothing
 
-Trust is personalized PageRank over a public vouching graph seeded
-from known honest parties (EF, foundations). The tally function
-enforces that a session only counts toward payout if **both** the
-client and the server have positive trust in the graph.
+Trust is derived **automatically from verified protocol interactions**,
+not from human vouching. Every successful session between two nodes
+(both sides' MACs verified, claim pairs matched) creates a weighted
+edge in the interaction graph. PageRank over this graph, seeded from
+the genesis node(s), gives each node a trust score.
+
+No humans in the loop. No `VouchRegistry`. The protocol itself
+generates trust signals — every MAC ✓ is a proof of honest behavior.
 
 Consequences:
 
-- A brand-new Sybil node has no inbound vouches → PageRank ≈ 0 →
-  zero trust → every session it participates in is dropped.
-- A trusted server colluding with a Sybil client to inflate its
-  claim earns zero: the Sybil client's zero trust disqualifies the
-  pair.
-- Earning requires not just work but *trust-weighted* work. The only
-  way to get trust is to be vouched for by someone who already has
-  it. Trust can't be minted.
+- A Sybil cluster interacting only with itself has **zero edges to
+  the honest network** → zero PageRank from the seed → zero trust →
+  zero payouts. No matter how much traffic they fake among themselves.
+- To gain trust, a node needs **real verified interactions with
+  already-trusted nodes** — which means actually serving real traffic
+  honestly to peers that are connected (transitively) to the seed.
+- A trusted server colluding with a Sybil client earns zero: the
+  Sybil's zero trust disqualifies the pair (both sides must have
+  positive trust for a session to count).
+- Trust can't be minted, bought, or faked. It flows only through
+  verified protocol interactions from the genesis seed outward.
 
-The vouching graph is public and anyone can compute the same trust
-values — no gatekeeper.
+The interaction graph is public (derived from the same claim data
+everyone can see) and anyone can compute the same PageRank scores.
 
 ## What's NOT here anymore
 
@@ -108,9 +115,11 @@ Earlier drafts of this design had:
 - A privileged "aggregator" role with a keystore.
 - A k-of-N committee signing tallies.
 - An on-chain `AggregatorRegistry` with bonds and metadata.
+- A human-vouching `VouchRegistry` for trust bootstrap.
 
 All deleted. The tally is a pure function; publication is a volunteer
-race with gas refund; trust is the sole Sybil defense.
+race with gas refund; trust is derived automatically from verified
+protocol interactions — no humans gatekeep who earns.
 
 ## Why this stays ITS in the liuniverse
 
@@ -132,7 +141,7 @@ Inside the Liun protocol:
 
 | Assumption | What breaks if it's wrong |
 |---|---|
-| Seed parties for trust graph are distinct & non-colluding | Capturing them lets an attacker inject trusted Sybils |
+| Genesis seed node is honest | Compromised seed could establish fake trust edges (but can't forge MAC-verified interactions — only real protocol sessions create edges) |
 | Ethereum mainnet secure | Contract balance or tally could be corrupted at the chain layer |
 | Liu channel between each pair is ITS | Their pair's receipts could be forged if that channel's key stream leaks |
 | ≥ 1 honest node reads blobs + submits a challenge when a wrong root is posted | A malicious publisher could push a bad root that goes unchallenged |

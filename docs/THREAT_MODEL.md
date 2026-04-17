@@ -199,9 +199,11 @@ Things we **don't** currently mitigate and are honest about:
   are: (1) per-pair ITS MACs on every claim, (2) required positive
   trust on BOTH parties of every credited session, (3) a 7-day
   on-chain challenge window with slashable publisher deposit. The
-  remaining risk is the seed set of the public trust graph — if every
-  seed (EF, Signal, community groups) colluded, they could inject
-  trusted Sybils. This **does not** compromise user chat:
+  remaining risk is the genesis seed node(s) — if the seed is
+  compromised, it could establish trust edges with Sybils. However,
+  trust is now derived automatically from verified interactions (not
+  human vouching), so the seed's only privilege is being the PageRank
+  teleport root, not a manual gatekeeper. This **does not** compromise user chat:
   confidentiality and authenticity of protocol traffic are independent
   of the funding layer and remain ITS-secure regardless of who got
   paid what.

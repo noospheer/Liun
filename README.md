@@ -2,7 +2,7 @@
 
 Production Rust implementation of the Liu protocol suite (Liup + Liun).
 
-**250 Rust tests + 16 forge tests. Zero failures.**
+**253 Rust tests + 16 forge tests. Zero failures.**
 
 ## Why this exists
 
@@ -130,8 +130,10 @@ crates/
 │   ├── SharedKey     cursor-based one-time-use byte stream from a Liu channel
 │   └── OpRecorder    node-side session accumulator; batch-posts by each node itself
 │
-└── liun-tally/       Deterministic payout tally (11 tests) — a PURE FUNCTION
+└── liun-tally/       Deterministic payout tally (14 tests) — a PURE FUNCTION
     ├── tally          (claims, trust, addr_book) → canonical payout list
+    ├── tally_auto     same, but derives trust from verified interactions (no vouching)
+    ├── AutoTrust      PageRank over interaction graph seeded from genesis nodes
     ├── merkle_root    OZ-compatible Merkle root + proofs (keccak at chain boundary)
     └── KeyStore       every node holds keys with its DIRECT peers only
 
