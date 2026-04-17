@@ -257,6 +257,189 @@ pub fn tally(
         .collect()
 }
 
+// ── Auto-trust: derive trust from verified interactions ─────────────
+//
+// Instead of human vouching, trust is derived AUTOMATICALLY from
+// verified protocol interactions. Each paired session (client claim +
+// server claim, both MAC-verified) creates a weighted edge in the
+// interaction graph. PageRank over this graph, seeded from the genesis
+// node(s), gives each node a trust score.
+//
+// Sybil resistance: a cluster of Sybils interacting only with each
+// other has no edges to the honest network → zero PageRank from the
+// seed → zero trust → zero payouts. To gain trust, a Sybil needs
+// real verified interactions with already-trusted nodes — which
+// means actually serving real traffic honestly.
+
+use std::collections::HashMap;
+
+/// Extract the interaction graph from verified claim pairs.
+/// Each paired session → one bidirectional edge weighted by
+/// `min(client.total_count, server.total_count)`.
+///
+/// Only includes pairs where both batches pass MAC verification
+/// against the keystore.
+pub fn interaction_graph(
+    batches: &[ClaimBatch],
+    keystore: &KeyStore,
+) -> Vec<(NodeId, NodeId, u64)> {
+    let mut client_side: BTreeMap<(u32, [u8; 16]), ReceiptClaim> = BTreeMap::new();
+    let mut server_side: BTreeMap<(u32, [u8; 16]), ReceiptClaim> = BTreeMap::new();
+
+    for b in batches {
+        let Some(key) = keystore.get(&b.reporter) else { continue };
+        if b.verify(key).is_err() { continue }
+        for c in &b.claims {
+            let pair_key = (c.claim.epoch, c.claim.session_id);
+            match c.claim.role {
+                Role::Client => { client_side.entry(pair_key).or_insert(c.claim); }
+                Role::Server => { server_side.entry(pair_key).or_insert(c.claim); }
+            }
+        }
+    }
+
+    let mut edges: Vec<(NodeId, NodeId, u64)> = Vec::new();
+    for (pair_key, server_claim) in &server_side {
+        let Some(client_claim) = client_side.get(pair_key) else { continue };
+        if client_claim.client_id != server_claim.client_id
+            || client_claim.server_id != server_claim.server_id
+        {
+            continue;
+        }
+        let weight = client_claim.total_count.min(server_claim.total_count);
+        edges.push((client_claim.client_id, server_claim.server_id, weight));
+    }
+    edges
+}
+
+/// Compute PageRank over the interaction graph with the given seed
+/// nodes. Returns a map from NodeId → trust score (fixed-point,
+/// multiplied by 1e9 for u128 precision).
+pub fn auto_trust_scores(
+    edges: &[(NodeId, NodeId, u64)],
+    seeds: &[NodeId],
+    damping: f64,
+    iterations: usize,
+) -> HashMap<NodeId, u128> {
+    // Collect all node IDs.
+    let mut node_set: HashSet<NodeId> = HashSet::new();
+    for (a, b, _) in edges {
+        node_set.insert(*a);
+        node_set.insert(*b);
+    }
+    for s in seeds {
+        node_set.insert(*s);
+    }
+    let nodes: Vec<NodeId> = node_set.into_iter().collect();
+    if nodes.is_empty() {
+        return HashMap::new();
+    }
+
+    // Build adjacency: bidirectional edges (interactions are mutual).
+    let mut adj: HashMap<NodeId, Vec<(NodeId, f64)>> = HashMap::new();
+    for &(a, b, w) in edges {
+        let wf = w as f64;
+        adj.entry(a).or_default().push((b, wf));
+        adj.entry(b).or_default().push((a, wf));
+    }
+
+    // Out-weight per node.
+    let out_weight = |n: &NodeId| -> f64 {
+        adj.get(n).map(|ns| ns.iter().map(|(_, w)| w).sum()).unwrap_or(0.0)
+    };
+
+    // Seed set for teleport.
+    let seed_set: HashSet<NodeId> = seeds.iter().copied().collect();
+    let seed_count = seed_set.len().max(1) as f64;
+
+    // Power iteration.
+    let mut trust: HashMap<NodeId, f64> = nodes.iter().map(|&n| (n, 0.0)).collect();
+    // Initialize seed nodes with equal share.
+    for s in &seed_set {
+        if let Some(v) = trust.get_mut(s) {
+            *v = 1.0 / seed_count;
+        }
+    }
+
+    for _ in 0..iterations {
+        let mut new_trust: HashMap<NodeId, f64> = nodes.iter().map(|&n| (n, 0.0)).collect();
+
+        for &u in &nodes {
+            let ow = out_weight(&u);
+            if ow == 0.0 { continue; }
+            if let Some(neighbors) = adj.get(&u) {
+                for &(v, w) in neighbors {
+                    *new_trust.get_mut(&v).unwrap() += damping * trust[&u] * w / ow;
+                }
+            }
+        }
+
+        // Teleport to seeds.
+        for &n in &nodes {
+            let teleport = if seed_set.contains(&n) {
+                (1.0 - damping) / seed_count
+            } else {
+                0.0
+            };
+            *new_trust.get_mut(&n).unwrap() += teleport;
+        }
+
+        trust = new_trust;
+    }
+
+    // Convert to fixed-point u128 (× 1e9).
+    trust
+        .into_iter()
+        .map(|(n, v)| (n, (v * 1e9) as u128))
+        .collect()
+}
+
+/// Auto-trust implementation of `TrustScore` — derives trust from
+/// verified interactions rather than human vouching.
+pub struct AutoTrust {
+    scores: HashMap<NodeId, u128>,
+}
+
+impl AutoTrust {
+    /// Build trust scores from claim batches + seed node IDs.
+    /// Two-pass: extract interaction graph → PageRank.
+    pub fn from_batches(
+        batches: &[ClaimBatch],
+        keystore: &KeyStore,
+        seeds: &[NodeId],
+    ) -> Self {
+        let edges = interaction_graph(batches, keystore);
+        let scores = auto_trust_scores(&edges, seeds, 0.85, 30);
+        Self { scores }
+    }
+
+    pub fn score(&self, node: &NodeId) -> u128 {
+        self.scores.get(node).copied().unwrap_or(0)
+    }
+}
+
+impl TrustScore for AutoTrust {
+    fn score(&self, node: &NodeId) -> u128 {
+        self.scores.get(node).copied().unwrap_or(0)
+    }
+}
+
+/// Convenience: tally with auto-derived trust. No external trust graph
+/// needed — trust is computed from the same claim data used for payouts.
+///
+/// `seeds` = the genesis node IDs (hardcoded in the binary).
+pub fn tally_auto(
+    batches: &[ClaimBatch],
+    addr_book: &AddressBook,
+    keystore: &KeyStore,
+    seeds: &[NodeId],
+    budget_wei: u128,
+    weights: &OpWeights,
+) -> Vec<Payout> {
+    let trust = AutoTrust::from_batches(batches, keystore, seeds);
+    tally(batches, &trust, addr_book, keystore, budget_wei, weights)
+}
+
 /// `a * b / c` with overflow protection. Computes `(a * b) / c` as if
 /// in u256, returning a u128 result (assumes the true quotient fits —
 /// which it does when `budget_wei ≤ u128::MAX` and the score ratio is
@@ -761,6 +944,119 @@ mod tests {
         let b: u128 = 100_000_000_000_000_000_000;
         let c: u128 = 100_000_000_000_000_000_000;
         assert_eq!(mul_div_floor(a, b, c), a);
+    }
+
+    #[test]
+    fn auto_trust_from_interactions() {
+        // Three nodes: seed S, honest A, honest B.
+        // S↔A had a session, A↔B had a session. S↔B did not.
+        // PageRank from seed S should give A high trust (direct
+        // interaction with seed), B medium trust (one hop from seed),
+        // and a Sybil node X with zero interactions gets zero.
+        let (s_id, s_node, s_agg) = shared_pair();
+        let (a_id, a_node, a_agg) = shared_pair();
+        let (b_id, b_node, b_agg) = shared_pair();
+        let x_id = NodeId::generate(); // Sybil, no interactions
+
+        // Session S↔A: both report
+        let sid_sa = rand_sid();
+        let cb_s = batch(s_id, &s_node, vec![
+            sign(&s_node, claim(s_id, a_id, Role::Client, 1000, sid_sa, 0, OP_DHT_QUERY)),
+        ], 1024);
+        let cb_a1 = batch(a_id, &a_node, vec![
+            sign(&a_node, claim(s_id, a_id, Role::Server, 1000, sid_sa, 0, OP_DHT_QUERY)),
+        ], 1024);
+
+        // Session A↔B: both report
+        let sid_ab = rand_sid();
+        let cb_a2 = batch(a_id, &a_node, vec![
+            sign(&a_node, claim(a_id, b_id, Role::Client, 500, sid_ab, 16, OP_DHT_QUERY)),
+        ], 2048);
+        let cb_b = batch(b_id, &b_node, vec![
+            sign(&b_node, claim(a_id, b_id, Role::Server, 500, sid_ab, 0, OP_DHT_QUERY)),
+        ], 1024);
+
+        let mut ks = KeyStore::new();
+        ks.insert(s_id, s_agg);
+        ks.insert(a_id, a_agg);
+        ks.insert(b_id, b_agg);
+
+        let batches = vec![cb_s, cb_a1, cb_a2, cb_b];
+        let trust = AutoTrust::from_batches(&batches, &ks, &[s_id]);
+
+        // Seed has trust (teleport).
+        assert!(trust.score(&s_id) > 0, "seed should have positive trust");
+        // A interacted directly with seed → high trust.
+        assert!(trust.score(&a_id) > 0, "A should have positive trust");
+        // B interacted with A (one hop from seed) → positive trust.
+        assert!(trust.score(&b_id) > 0, "B should have positive trust");
+        // A should have more trust than B (closer to seed).
+        assert!(trust.score(&a_id) > trust.score(&b_id),
+            "A (direct seed contact) should outrank B (one hop)");
+        // Sybil X has no interactions → zero trust.
+        assert_eq!(trust.score(&x_id), 0, "Sybil with no interactions = zero trust");
+    }
+
+    #[test]
+    fn tally_auto_pays_interactors_not_sybils() {
+        let (s_id, s_node, s_agg) = shared_pair();
+        let (a_id, a_node, a_agg) = shared_pair();
+
+        // Session S↔A
+        let sid = rand_sid();
+        let cb_s = batch(s_id, &s_node, vec![
+            sign(&s_node, claim(s_id, a_id, Role::Client, 100, sid, 0, OP_DHT_QUERY)),
+        ], 1024);
+        let cb_a = batch(a_id, &a_node, vec![
+            sign(&a_node, claim(s_id, a_id, Role::Server, 100, sid, 0, OP_DHT_QUERY)),
+        ], 1024);
+
+        let mut ab = AddressBook::default();
+        ab.register(s_id, [0x5E; 20]);
+        ab.register(a_id, [0xAA; 20]);
+        let mut ks = KeyStore::new();
+        ks.insert(s_id, s_agg);
+        ks.insert(a_id, a_agg);
+
+        let payouts = tally_auto(
+            &[cb_s, cb_a], &ab, &ks, &[s_id], 10_000, &OpWeights::default(),
+        );
+        // A served S → A gets paid.
+        assert!(payouts.iter().any(|p| p.node == a_id && p.amount_wei > 0),
+            "A should receive a payout");
+    }
+
+    #[test]
+    fn sybil_cluster_earns_nothing_auto_trust() {
+        // Sybil cluster: X and Y interact with each other but never
+        // with the seed or any honest node.
+        let (s_id, s_node, s_agg) = shared_pair();
+        let (x_id, x_node, x_agg) = shared_pair();
+        let (y_id, y_node, y_agg) = shared_pair();
+
+        // X↔Y session (Sybil interaction)
+        let sid = rand_sid();
+        let cb_x = batch(x_id, &x_node, vec![
+            sign(&x_node, claim(x_id, y_id, Role::Client, 1_000_000, sid, 0, OP_DHT_QUERY)),
+        ], 1024);
+        let cb_y = batch(y_id, &y_node, vec![
+            sign(&y_node, claim(x_id, y_id, Role::Server, 1_000_000, sid, 0, OP_DHT_QUERY)),
+        ], 1024);
+
+        let mut ab = AddressBook::default();
+        ab.register(s_id, [0x5E; 20]);
+        ab.register(x_id, [0xAA; 20]);
+        ab.register(y_id, [0xBB; 20]);
+        let mut ks = KeyStore::new();
+        ks.insert(s_id, s_agg);
+        ks.insert(x_id, x_agg);
+        ks.insert(y_id, y_agg);
+
+        let payouts = tally_auto(
+            &[cb_x, cb_y], &ab, &ks, &[s_id], 1_000_000, &OpWeights::default(),
+        );
+        // Sybil cluster has zero PageRank from seed → zero payouts.
+        assert_eq!(payouts.len(), 0, "Sybil cluster with no seed connection earns nothing");
     }
 
     #[test]
