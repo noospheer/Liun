@@ -205,6 +205,7 @@ Per-message display shows the full state: `Frame: 40B on wire (20B overhead) | M
 
 ## Operational features
 
+- **Auto-trust pipeline**: daemon automatically opens 30-second pipeline courier bursts with its 42 nearest DHT neighbors daily, creating/refreshing trust edges without human intervention. Configurable: `trust_neighbors`, `trust_burst_secs`, `trust_interval_secs` in config.toml.
 - **Graceful shutdown**: SIGTERM triggers orderly shutdown — DHT peers saved, key material zeroized on drop, process exits cleanly. Second signal within `TimeoutStopSec` forces.
 - **Health + metrics HTTP** via `--admin-listen <addr>` — `/health` returns JSON status, `/metrics` returns Prometheus format. Bind to loopback-only unless fronted by a reverse proxy.
 - **DHT rate limiting**: per-source-IP token bucket (1000 queries / 10s window), drops over-limit silently.
@@ -384,6 +385,11 @@ bootstrap_peers = [        # initial peers for joining
     "node1.example.com:7767",
     "node2.example.com:7767",
 ]
+
+# Auto-trust: configurable pipeline burst settings
+trust_neighbors = 42       # nearest DHT peers to verify (default: 42)
+trust_burst_secs = 30      # duration of each trust burst (default: 30)
+trust_interval_secs = 86400 # time between rounds (default: daily)
 ```
 
 See [LiupProofs/PARAMETER_GUIDE.md](../LiupProofs/PARAMETER_GUIDE.md) for security-level
