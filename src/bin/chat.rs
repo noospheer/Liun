@@ -914,7 +914,14 @@ async fn main() {
                         stdin_tx.subscribe(), shutdown_handle.subscribe()).await;
             session_n += 1;
             if shutdown_handle.is_fired() { break; }
-            println!("  \x1b[33m[session ended — pool state kept, waiting for peer to reconnect]\x1b[0m");
+
+            const MAX_SESSION_RETRIES: u64 = 5;
+            if session_n > MAX_SESSION_RETRIES {
+                eprintln!("  \x1b[31m[too many failed sessions ({session_n}) — giving up]\x1b[0m");
+                eprintln!("  \x1b[33m→ Restart with a fresh session-id if needed.\x1b[0m");
+                break;
+            }
+            println!("  \x1b[33m[session ended — waiting for peer to reconnect]\x1b[0m");
         }
     } else {
         let mut session_n: u64 = 0;
@@ -954,7 +961,18 @@ async fn main() {
                         stdin_tx.subscribe(), shutdown_handle.subscribe()).await;
             session_n += 1;
             if shutdown_handle.is_fired() { break; }
-            println!("  \x1b[33m[session ended — pool state kept, attempting reconnect]\x1b[0m");
+
+            // Backoff between sessions to prevent reconnect floods.
+            // After 5 consecutive rapid failures, stop entirely.
+            const MAX_SESSION_RETRIES: u64 = 5;
+            if session_n > MAX_SESSION_RETRIES {
+                eprintln!("  \x1b[31m[too many failed sessions ({session_n}) — giving up]\x1b[0m");
+                eprintln!("  \x1b[33m→ Restart with a fresh session-id if needed.\x1b[0m");
+                break;
+            }
+            let pause = std::cmp::min(session_n * 2, 10);
+            eprintln!("  \x1b[33m[session ended — reconnecting in {pause}s]\x1b[0m");
+            tokio::time::sleep(tokio::time::Duration::from_secs(pause)).await;
         }
     }
     println!("  [chat shutdown complete]");
