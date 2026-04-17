@@ -24,7 +24,8 @@ needs privacy.
 
 Anyone can run a node. Volunteers get paid from a public ETH pool
 funded by sponsors — no user fees, no tokens, no stake. Fake nodes
-earn nothing because payouts follow social trust, not capital.
+earn nothing because payouts require trust derived from verified
+protocol interactions, not capital or social connections.
 
 It's the lifeboat for when comp crypto breaks.
 
@@ -189,6 +190,40 @@ Per-message display shows the full state: `Frame: 40B on wire (20B overhead) | M
 - **Threat model explicit**: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — adversary tiers A-G, what's protected, what's not, deployment checklist.
 - **Wire protocol spec**: [docs/PROTOCOL.md](docs/PROTOCOL.md) — every byte of every wire format, version discipline, downgrade-attack analysis.
 - **Node incentives**: [docs/FUNDING.md](docs/FUNDING.md) — one role (node), one binary, one wallet. Anyone runs a `liun-node` and gets paid for the work it does from a public-goods ETH pool. No stake, no fees, no committees, no pubkeys in the protocol layer. Payout tally is a deterministic pure function any node can re-run and challenge.
+
+## Trust model
+
+Trust is derived **automatically from verified protocol interactions**
+— no human vouching, no manual registration, no social gating.
+
+Every successful session (pipeline courier, relay share, Liu channel)
+where both sides' MACs verify creates an edge in the interaction
+graph. PageRank over this graph, seeded from the genesis node, gives
+each node a trust score. Payouts = trust × volume.
+
+### Anti-gaming measures
+
+| Attack | Defence | Tested |
+|---|---|---|
+| **DHT query spam** — cheap UDP packets to farm trust edges | DHT queries (`OP_DHT_QUERY`) excluded from trust. Only sustained sessions (`OP_CHANNEL_BYTES`, `OP_RELAY_SHARE`) create edges. | `dht_queries_excluded_from_trust` |
+| **Collusion inflation** — two nodes repeat sessions to inflate trust | Edges **deduplicated per unique peer pair**. 1000 sessions = 1 trust edge. | `repeated_sessions_give_one_trust_edge` |
+| **Sybil cluster** — fake nodes interact only with each other | Zero edges to honest network → zero PageRank from seed → zero payouts. | `sybil_cluster_earns_nothing_auto_trust` |
+| **Sybil client corroboration** — trusted server manufactures fake client | Both sides must have positive trust for a session to count toward payouts. | `sybil_client_cannot_inflate_trusted_server` |
+| **Trust stagnation** — node earned trust long ago, stopped serving | **52-epoch decay window**. Old interactions contribute less; nodes that stop serving lose trust over time. | Structural (weight = window − age) |
+| **Long-range pivot** — node earns trust honestly, then turns evil | Turning evil = bad MACs → sessions fail → no new trust edges form → trust decays. Detected automatically by protocol, not by humans. | Protocol-level (MAC verification) |
+
+### What the genesis seed can and cannot do
+
+The seed is the PageRank teleport root. It **cannot**:
+- Grant trust without real MAC-verified interactions
+- Forge interactions (would need the peer's SharedKey)
+- Override the decay window
+
+It **can**:
+- Be the first node a new joiner interacts with (DHT bootstrap)
+- Accumulate trust edges from real interactions with honest peers
+
+Multiple seeds are supported (`GENESIS_SEEDS` array) for independence.
 
 ## RNG discipline
 
