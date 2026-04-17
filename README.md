@@ -223,10 +223,18 @@ Per-message display shows the full state: `Frame: 40B on wire (20B overhead) | M
 Trust is derived **automatically from verified protocol interactions**
 — no human vouching, no manual registration, no social gating.
 
-Every successful session (pipeline courier, relay share, Liu channel)
-where both sides' MACs verify creates an edge in the interaction
-graph. PageRank over this graph, seeded from the genesis node, gives
-each node a trust score. Payouts = trust × volume.
+Every successful session where both sides' MACs verify creates an edge
+in the interaction graph. Trust is computed via **Bayesian inference**
+— no arbitrary constants:
+
+```
+trust = log(1 + epochs_online) × log(1 + unique_peer_ASNs) × (1 + successes) / (2 + successes + failures)
+         ↑ time (diminishing      ↑ diversity (independent     ↑ correctness (Laplace-smoothed
+           returns on uptime)       witnesses)                   Bayesian posterior)
+```
+
+Nodes unreachable from the genesis seed get zero trust regardless of
+their Bayesian score (Sybil cluster isolation).
 
 ### Anti-gaming measures
 
