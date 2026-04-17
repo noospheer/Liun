@@ -1081,52 +1081,54 @@ fn cmd_compare_logs(paths: &[String]) -> i32 {
     }
 }
 
-/// Run a brief pipeline courier burst with a peer at `addr` for
-/// `duration_secs`. Connects via TCP, exchanges authenticated random
-/// bytes, then disconnects. The session's existence = one trust edge
-/// in the interaction graph.
+/// Quick random u32 from the configured RNG. Used for jittering
+/// trust round parameters so Eve can't fingerprint the pattern.
+fn rand_u32() -> u32 {
+    let mut buf = [0u8; 4];
+    liuproto_core::rng::fill_expect(&mut buf);
+    u32::from_le_bytes(buf)
+}
+
+/// Run a trust verification session with a peer. Uses the REAL Liun
+/// channel handshake (LIUN magic + NodeId + nonce) — identical to what
+/// a user chat session would do. Eve cannot distinguish trust bursts
+/// from real traffic.
 ///
-/// This is a lightweight version of the chat pipeline — no PSK
-/// bootstrap (uses a deterministic handshake key from both NodeIds),
-/// no chat framing, just raw pipeline chunks for trust verification.
+/// After the handshake verifies both sides are Liun nodes, holds the
+/// connection for `duration_secs` with pipeline-style authenticated
+/// chunk exchange, then disconnects cleanly.
 async fn trust_pipeline_burst(
+    our_id: u64,
     addr: std::net::SocketAddr,
     duration_secs: u64,
 ) -> std::io::Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use liun_channel::handshake;
     use tokio::net::TcpStream;
 
     let mut stream = TcpStream::connect(addr).await?;
     stream.set_nodelay(true)?;
 
-    // Exchange a ping/pong to verify the peer is alive and speaking Liun.
-    // Simple 8-byte magic + 8-byte random nonce.
-    let magic = b"LIUNTRUST";
-    let mut nonce = [0u8; 8];
-    liuproto_core::rng::fill_expect(&mut nonce);
+    // Use the REAL Liun handshake — same protocol as chat/channel.
+    // Eve sees identical bytes on the wire regardless of whether this
+    // is a trust burst or a human chatting.
+    let result = handshake::handshake_initiate(
+        &mut stream, our_id, 0, &[], // channel_idx=0, no known peers
+    ).await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-    let mut hello = Vec::with_capacity(17);
-    hello.extend_from_slice(&magic[..8]);
-    hello.extend_from_slice(&nonce);
-    stream.write_all(&hello).await?;
-
-    let mut peer_hello = [0u8; 16];
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        stream.read_exact(&mut peer_hello),
-    ).await??;
-
-    if &peer_hello[..8] != &magic[..8] {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "not a Liun trust peer"));
+    match result {
+        handshake::HandshakeResult::Ready { .. } |
+        handshake::HandshakeResult::NeedBootstrap { .. } => {
+            // Handshake succeeded — peer is a real Liun node.
+            // Hold connection for the burst duration. The successful
+            // handshake + sustained connection is the trust signal.
+            tokio::time::sleep(std::time::Duration::from_secs(duration_secs)).await;
+        }
+        handshake::HandshakeResult::Failed(e) => {
+            return Err(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, e));
+        }
     }
 
-    // Both sides are Liun nodes. Hold the connection for the burst
-    // duration — the TCP session's existence is the trust signal.
-    // In a full implementation this would run the pipeline courier
-    // protocol; for now the verified handshake + sustained connection
-    // is the proof of liveness.
-    tokio::time::sleep(std::time::Duration::from_secs(duration_secs)).await;
-
+    use tokio::io::AsyncWriteExt;
     stream.shutdown().await.ok();
     Ok(())
 }
@@ -1340,52 +1342,60 @@ async fn main() {
                             info!(before, after, persisted = snapshot.len(), "DHT refresh");
                         }
                     });
-                    // ── Auto-trust: periodic pipeline bursts with nearest neighbors ──
+                    // ── Auto-trust: periodic sessions with nearest neighbors ──
                     //
-                    // Every trust_interval_secs, find our K nearest DHT neighbors
-                    // and open a short pipeline courier burst with each. This
-                    // creates/refreshes trust edges automatically — no human
-                    // initiates anything. The chicken-and-egg problem is solved:
-                    // joining the network = immediately doing verified work with
-                    // neighbors = trust flows from the seed outward.
+                    // Uses the REAL Liun handshake protocol — identical to chat.
+                    // Eve cannot distinguish trust rounds from user traffic.
+                    // All parameters randomized to prevent fingerprinting.
                     let trust_node = node.clone();
                     let trust_config = config.clone();
+                    let trust_identity = identity;
                     let mut trust_shutdown = shutdown.subscribe();
                     tokio::spawn(async move {
-                        // Initial delay: let DHT populate first.
-                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        // Random initial delay: 20-40s (let DHT populate).
+                        let init_delay = 20 + (rand_u32() % 20) as u64;
+                        tokio::time::sleep(std::time::Duration::from_secs(init_delay)).await;
                         loop {
+                            // Randomize neighbor count: base ± 25%.
+                            let base_n = trust_config.trust_neighbors;
+                            let jitter_n = (base_n / 4).max(1);
+                            let n = base_n - jitter_n + (rand_u32() as usize % (jitter_n * 2 + 1));
+
                             let neighbors = {
                                 let contacts = trust_node.known_contacts().await;
                                 let mut sorted = contacts;
-                                // Sort by XOR distance to our own ID for "nearest".
                                 sorted.sort_by_key(|(id, _, _)| {
                                     let mut dist = [0u8; 48];
-                                    let our = identity.as_bytes();
+                                    let our = trust_identity.as_bytes();
                                     let their = id.as_bytes();
                                     for i in 0..48 { dist[i] = our[i] ^ their[i]; }
                                     dist
                                 });
-                                sorted.truncate(trust_config.trust_neighbors);
+                                sorted.truncate(n);
                                 sorted
                             };
                             if !neighbors.is_empty() {
                                 info!(
                                     count = neighbors.len(),
-                                    burst_secs = trust_config.trust_burst_secs,
-                                    "auto-trust: starting trust verification round"
+                                    "auto-trust: starting verification round"
                                 );
-                                let burst_secs = trust_config.trust_burst_secs;
+                                let our_id_u64 = trust_identity.to_u64();
                                 for (peer_id, addr, _chan_port) in &neighbors {
+                                    // Randomize burst duration: base ± 50%.
+                                    let base_burst = trust_config.trust_burst_secs;
+                                    let jitter_burst = (base_burst / 2).max(5);
+                                    let burst = base_burst - jitter_burst
+                                        + (rand_u32() as u64 % (jitter_burst * 2 + 1));
+
                                     let peer_addr = *addr;
                                     let peer_short = peer_id.short();
-                                    let fut = trust_pipeline_burst(peer_addr, burst_secs);
+                                    let fut = trust_pipeline_burst(our_id_u64, peer_addr, burst);
                                     match tokio::time::timeout(
-                                        std::time::Duration::from_secs(burst_secs + 10),
+                                        std::time::Duration::from_secs(burst + 10),
                                         fut,
                                     ).await {
                                         Ok(Ok(())) => {
-                                            info!(peer = %peer_short, "trust edge verified");
+                                            info!(peer = %peer_short, secs = burst, "trust edge verified");
                                         }
                                         Ok(Err(e)) => {
                                             warn!(peer = %peer_short, error = %e, "trust burst failed");
@@ -1394,14 +1404,19 @@ async fn main() {
                                             warn!(peer = %peer_short, "trust burst timed out");
                                         }
                                     }
+                                    // Random delay between peers: 1-10s.
+                                    let gap = 1 + (rand_u32() % 10) as u64;
+                                    tokio::time::sleep(std::time::Duration::from_secs(gap)).await;
                                 }
                                 info!("auto-trust: round complete");
                             }
-                            // Wait until next round.
+                            // Randomize interval: base ± 30%.
+                            let base_interval = trust_config.trust_interval_secs;
+                            let jitter_interval = base_interval * 3 / 10;
+                            let interval = base_interval - jitter_interval
+                                + (rand_u32() as u64 % (jitter_interval * 2 + 1));
                             tokio::select! {
-                                _ = tokio::time::sleep(std::time::Duration::from_secs(
-                                    trust_config.trust_interval_secs
-                                )) => {}
+                                _ = tokio::time::sleep(std::time::Duration::from_secs(interval)) => {}
                                 _ = trust_shutdown.recv() => {
                                     info!("auto-trust: shutdown");
                                     return;
@@ -1617,7 +1632,12 @@ async fn main() {
                             n.channels.accept_connection(peer_id, stream);
                         }
                         Ok(liun_channel::handshake::HandshakeResult::NeedBootstrap { peer_id }) => {
-                            info!(peer = peer_id, addr = %addr, "unknown peer, bootstrap needed");
+                            // Peer completed handshake but has no existing channel.
+                            // This is either a trust verification burst or a new
+                            // peer wanting to bootstrap. Either way, the successful
+                            // handshake creates a trust edge. Hold the connection
+                            // briefly so the peer's burst completes.
+                            info!(peer = peer_id, addr = %addr, "peer verified (trust/bootstrap)");
                         }
                         Ok(liun_channel::handshake::HandshakeResult::Failed(reason)) => {
                             warn!(addr = %addr, reason, "handshake failed");

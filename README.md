@@ -205,7 +205,7 @@ Per-message display shows the full state: `Frame: 40B on wire (20B overhead) | M
 
 ## Operational features
 
-- **Auto-trust pipeline**: daemon automatically opens 30-second pipeline courier bursts with its 42 nearest DHT neighbors daily, creating/refreshing trust edges without human intervention. Configurable: `trust_neighbors`, `trust_burst_secs`, `trust_interval_secs` in config.toml.
+- **Auto-trust pipeline**: daemon verifies nearest DHT neighbors using the **same Liun handshake protocol as chat** — Eve cannot distinguish trust rounds from real traffic. All timing randomized (neighbor count ± 25%, burst duration ± 50%, interval ± 30%, random inter-peer gaps) to prevent fingerprinting. Configurable: `trust_neighbors` (default 42), `trust_burst_secs` (default 30), `trust_interval_secs` (default 86400) in config.toml.
 - **Graceful shutdown**: SIGTERM triggers orderly shutdown — DHT peers saved, key material zeroized on drop, process exits cleanly. Second signal within `TimeoutStopSec` forces.
 - **Health + metrics HTTP** via `--admin-listen <addr>` — `/health` returns JSON status, `/metrics` returns Prometheus format. Bind to loopback-only unless fronted by a reverse proxy.
 - **DHT rate limiting**: per-source-IP token bucket (1000 queries / 10s window), drops over-limit silently.
