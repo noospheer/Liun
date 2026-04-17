@@ -259,29 +259,44 @@ pub fn tally(
 
 // ── Auto-trust: derive trust from verified interactions ─────────────
 //
-// Instead of human vouching, trust is derived AUTOMATICALLY from
-// verified protocol interactions. Each paired session (client claim +
-// server claim, both MAC-verified) creates a weighted edge in the
-// interaction graph. PageRank over this graph, seeded from the genesis
-// node(s), gives each node a trust score.
+// Trust is derived AUTOMATICALLY from verified protocol interactions.
+// Each paired session creates an edge in the interaction graph.
+// PageRank over this graph, seeded from genesis, gives trust scores.
 //
-// Sybil resistance: a cluster of Sybils interacting only with each
-// other has no edges to the honest network → zero PageRank from the
-// seed → zero trust → zero payouts. To gain trust, a Sybil needs
-// real verified interactions with already-trusted nodes — which
-// means actually serving real traffic honestly.
+// Anti-gaming measures:
+//   1. DHT queries (OP_DHT_QUERY) are EXCLUDED — too cheap to spam.
+//      Only sustained sessions (OP_CHANNEL_BYTES, OP_RELAY_SHARE)
+//      create trust edges.
+//   2. Edges are BINARY per unique peer pair — 1000 sessions between
+//      the same two nodes = 1 trust edge. Colluding nodes can inflate
+//      volume but NOT trust.
+//   3. Trust decays: edges are weighted by recency. Older epochs
+//      contribute less. A node that stops serving loses trust over time.
 
 use std::collections::HashMap;
 
+/// Op kinds that qualify for trust edges. DHT queries are excluded
+/// because they're too cheap (a few UDP packets → free trust edge).
+/// Only sustained sessions involving real key material exchange count.
+fn qualifies_for_trust(op_kind: u8) -> bool {
+    matches!(op_kind, OP_CHANNEL_BYTES | OP_RELAY_SHARE)
+}
+
 /// Extract the interaction graph from verified claim pairs.
-/// Each paired session → one bidirectional edge weighted by
-/// `min(client.total_count, server.total_count)`.
 ///
-/// Only includes pairs where both batches pass MAC verification
-/// against the keystore.
+/// **Anti-gaming:**
+///   - Only `OP_CHANNEL_BYTES` and `OP_RELAY_SHARE` sessions count
+///     (DHT queries excluded — too cheap to be meaningful trust signal).
+///   - Edges are **deduplicated per unique peer pair**: many sessions
+///     between A and B produce ONE edge. This prevents colluding nodes
+///     from inflating their trust by repeating sessions.
+///   - Each edge carries a `recency` weight = `current_epoch - session_epoch`,
+///     so older interactions decay. Pass `current_epoch` to control the
+///     decay window.
 pub fn interaction_graph(
     batches: &[ClaimBatch],
     keystore: &KeyStore,
+    current_epoch: u32,
 ) -> Vec<(NodeId, NodeId, u64)> {
     let mut client_side: BTreeMap<(u32, [u8; 16]), ReceiptClaim> = BTreeMap::new();
     let mut server_side: BTreeMap<(u32, [u8; 16]), ReceiptClaim> = BTreeMap::new();
@@ -290,6 +305,8 @@ pub fn interaction_graph(
         let Some(key) = keystore.get(&b.reporter) else { continue };
         if b.verify(key).is_err() { continue }
         for c in &b.claims {
+            // Skip DHT queries — too cheap to be trust-meaningful.
+            if !qualifies_for_trust(c.claim.op_kind) { continue }
             let pair_key = (c.claim.epoch, c.claim.session_id);
             match c.claim.role {
                 Role::Client => { client_side.entry(pair_key).or_insert(c.claim); }
@@ -298,7 +315,11 @@ pub fn interaction_graph(
         }
     }
 
-    let mut edges: Vec<(NodeId, NodeId, u64)> = Vec::new();
+    // Deduplicate: one edge per unique (client_id, server_id) pair.
+    // If multiple sessions exist between the same pair, keep the most
+    // recent one (highest epoch) for decay weighting.
+    let mut best_epoch: BTreeMap<(NodeId, NodeId), u32> = BTreeMap::new();
+
     for (pair_key, server_claim) in &server_side {
         let Some(client_claim) = client_side.get(pair_key) else { continue };
         if client_claim.client_id != server_claim.client_id
@@ -306,10 +327,25 @@ pub fn interaction_graph(
         {
             continue;
         }
-        let weight = client_claim.total_count.min(server_claim.total_count);
-        edges.push((client_claim.client_id, server_claim.server_id, weight));
+        let pair = (client_claim.client_id, server_claim.server_id);
+        let epoch = server_claim.epoch;
+        best_epoch.entry(pair)
+            .and_modify(|e| *e = (*e).max(epoch))
+            .or_insert(epoch);
     }
-    edges
+
+    // Convert to edges with decay weight.
+    // Decay: weight = 1 + (DECAY_WINDOW - age), clamped to [1, DECAY_WINDOW].
+    // Recent interactions weigh more; ancient ones still count but less.
+    const DECAY_WINDOW: u32 = 52; // ~1 year of weekly epochs
+    best_epoch
+        .into_iter()
+        .map(|((a, b), epoch)| {
+            let age = current_epoch.saturating_sub(epoch);
+            let weight = DECAY_WINDOW.saturating_sub(age).max(1) as u64;
+            (a, b, weight)
+        })
+        .collect()
 }
 
 /// Compute PageRank over the interaction graph with the given seed
@@ -403,12 +439,14 @@ pub struct AutoTrust {
 impl AutoTrust {
     /// Build trust scores from claim batches + seed node IDs.
     /// Two-pass: extract interaction graph → PageRank.
+    /// `current_epoch` controls the decay window for trust edges.
     pub fn from_batches(
         batches: &[ClaimBatch],
         keystore: &KeyStore,
         seeds: &[NodeId],
+        current_epoch: u32,
     ) -> Self {
-        let edges = interaction_graph(batches, keystore);
+        let edges = interaction_graph(batches, keystore, current_epoch);
         let scores = auto_trust_scores(&edges, seeds, 0.85, 30);
         Self { scores }
     }
@@ -428,15 +466,17 @@ impl TrustScore for AutoTrust {
 /// needed — trust is computed from the same claim data used for payouts.
 ///
 /// `seeds` = the genesis node IDs (hardcoded in the binary).
+/// `current_epoch` = the epoch being tallied (for decay weighting).
 pub fn tally_auto(
     batches: &[ClaimBatch],
     addr_book: &AddressBook,
     keystore: &KeyStore,
     seeds: &[NodeId],
+    current_epoch: u32,
     budget_wei: u128,
     weights: &OpWeights,
 ) -> Vec<Payout> {
-    let trust = AutoTrust::from_batches(batches, keystore, seeds);
+    let trust = AutoTrust::from_batches(batches, keystore, seeds, current_epoch);
     tally(batches, &trust, addr_book, keystore, budget_wei, weights)
 }
 
@@ -961,19 +1001,19 @@ mod tests {
         // Session S↔A: both report
         let sid_sa = rand_sid();
         let cb_s = batch(s_id, &s_node, vec![
-            sign(&s_node, claim(s_id, a_id, Role::Client, 1000, sid_sa, 0, OP_DHT_QUERY)),
+            sign(&s_node, claim(s_id, a_id, Role::Client, 1000, sid_sa, 0, OP_CHANNEL_BYTES)),
         ], 1024);
         let cb_a1 = batch(a_id, &a_node, vec![
-            sign(&a_node, claim(s_id, a_id, Role::Server, 1000, sid_sa, 0, OP_DHT_QUERY)),
+            sign(&a_node, claim(s_id, a_id, Role::Server, 1000, sid_sa, 0, OP_CHANNEL_BYTES)),
         ], 1024);
 
         // Session A↔B: both report
         let sid_ab = rand_sid();
         let cb_a2 = batch(a_id, &a_node, vec![
-            sign(&a_node, claim(a_id, b_id, Role::Client, 500, sid_ab, 16, OP_DHT_QUERY)),
+            sign(&a_node, claim(a_id, b_id, Role::Client, 500, sid_ab, 16, OP_CHANNEL_BYTES)),
         ], 2048);
         let cb_b = batch(b_id, &b_node, vec![
-            sign(&b_node, claim(a_id, b_id, Role::Server, 500, sid_ab, 0, OP_DHT_QUERY)),
+            sign(&b_node, claim(a_id, b_id, Role::Server, 500, sid_ab, 0, OP_CHANNEL_BYTES)),
         ], 1024);
 
         let mut ks = KeyStore::new();
@@ -982,7 +1022,7 @@ mod tests {
         ks.insert(b_id, b_agg);
 
         let batches = vec![cb_s, cb_a1, cb_a2, cb_b];
-        let trust = AutoTrust::from_batches(&batches, &ks, &[s_id]);
+        let trust = AutoTrust::from_batches(&batches, &ks, &[s_id], 1);
 
         // Seed has trust (teleport).
         assert!(trust.score(&s_id) > 0, "seed should have positive trust");
@@ -998,6 +1038,46 @@ mod tests {
     }
 
     #[test]
+    fn dht_queries_excluded_from_trust() {
+        // Spamming DHT queries at the seed should NOT create trust.
+        let (s_id, s_node, s_agg) = shared_pair();
+        let (x_id, x_node, x_agg) = shared_pair();
+        let sid = rand_sid();
+        let cb_s = batch(s_id, &s_node, vec![
+            sign(&s_node, claim(s_id, x_id, Role::Client, 1_000_000, sid, 0, OP_DHT_QUERY)),
+        ], 1024);
+        let cb_x = batch(x_id, &x_node, vec![
+            sign(&x_node, claim(s_id, x_id, Role::Server, 1_000_000, sid, 0, OP_DHT_QUERY)),
+        ], 1024);
+        let mut ks = KeyStore::new();
+        ks.insert(s_id, s_agg);
+        ks.insert(x_id, x_agg);
+        let trust = AutoTrust::from_batches(&[cb_s, cb_x], &ks, &[s_id], 1);
+        assert_eq!(trust.score(&x_id), 0, "DHT-only node should have zero trust");
+    }
+
+    #[test]
+    fn repeated_sessions_give_one_trust_edge() {
+        // 50 sessions between S and A → 1 trust edge, not 50.
+        let (s_id, s_node, s_agg) = shared_pair();
+        let (a_id, a_node, a_agg) = shared_pair();
+        let mut s_claims = Vec::new();
+        let mut a_claims = Vec::new();
+        for i in 0..50u64 {
+            let sid = rand_sid();
+            s_claims.push(sign(&s_node, claim(s_id, a_id, Role::Client, 100, sid, i * 16, OP_CHANNEL_BYTES)));
+            a_claims.push(sign(&a_node, claim(s_id, a_id, Role::Server, 100, sid, i * 16, OP_CHANNEL_BYTES)));
+        }
+        let cb_s = batch(s_id, &s_node, s_claims, 4000);
+        let cb_a = batch(a_id, &a_node, a_claims, 4000);
+        let mut ks = KeyStore::new();
+        ks.insert(s_id, s_agg);
+        ks.insert(a_id, a_agg);
+        let edges = interaction_graph(&[cb_s, cb_a], &ks, 1);
+        assert_eq!(edges.len(), 1, "50 sessions same pair → 1 trust edge");
+    }
+
+    #[test]
     fn tally_auto_pays_interactors_not_sybils() {
         let (s_id, s_node, s_agg) = shared_pair();
         let (a_id, a_node, a_agg) = shared_pair();
@@ -1005,10 +1085,10 @@ mod tests {
         // Session S↔A
         let sid = rand_sid();
         let cb_s = batch(s_id, &s_node, vec![
-            sign(&s_node, claim(s_id, a_id, Role::Client, 100, sid, 0, OP_DHT_QUERY)),
+            sign(&s_node, claim(s_id, a_id, Role::Client, 100, sid, 0, OP_CHANNEL_BYTES)),
         ], 1024);
         let cb_a = batch(a_id, &a_node, vec![
-            sign(&a_node, claim(s_id, a_id, Role::Server, 100, sid, 0, OP_DHT_QUERY)),
+            sign(&a_node, claim(s_id, a_id, Role::Server, 100, sid, 0, OP_CHANNEL_BYTES)),
         ], 1024);
 
         let mut ab = AddressBook::default();
@@ -1019,7 +1099,7 @@ mod tests {
         ks.insert(a_id, a_agg);
 
         let payouts = tally_auto(
-            &[cb_s, cb_a], &ab, &ks, &[s_id], 10_000, &OpWeights::default(),
+            &[cb_s, cb_a], &ab, &ks, &[s_id], 1, 10_000, &OpWeights::default(),
         );
         // A served S → A gets paid.
         assert!(payouts.iter().any(|p| p.node == a_id && p.amount_wei > 0),
@@ -1037,10 +1117,10 @@ mod tests {
         // X↔Y session (Sybil interaction)
         let sid = rand_sid();
         let cb_x = batch(x_id, &x_node, vec![
-            sign(&x_node, claim(x_id, y_id, Role::Client, 1_000_000, sid, 0, OP_DHT_QUERY)),
+            sign(&x_node, claim(x_id, y_id, Role::Client, 1_000_000, sid, 0, OP_CHANNEL_BYTES)),
         ], 1024);
         let cb_y = batch(y_id, &y_node, vec![
-            sign(&y_node, claim(x_id, y_id, Role::Server, 1_000_000, sid, 0, OP_DHT_QUERY)),
+            sign(&y_node, claim(x_id, y_id, Role::Server, 1_000_000, sid, 0, OP_CHANNEL_BYTES)),
         ], 1024);
 
         let mut ab = AddressBook::default();
@@ -1053,7 +1133,7 @@ mod tests {
         ks.insert(y_id, y_agg);
 
         let payouts = tally_auto(
-            &[cb_x, cb_y], &ab, &ks, &[s_id], 1_000_000, &OpWeights::default(),
+            &[cb_x, cb_y], &ab, &ks, &[s_id], 1, 1_000_000, &OpWeights::default(),
         );
         // Sybil cluster has zero PageRank from seed → zero payouts.
         assert_eq!(payouts.len(), 0, "Sybil cluster with no seed connection earns nothing");
