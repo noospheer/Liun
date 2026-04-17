@@ -302,7 +302,7 @@ async fn pipeline_sender(
             .collect();
         if deposit_bits.len() >= 128 {
             let _ = send_chat_pool.lock().await
-                .try_deposit(&deposit_bits, DepositSource::Trusted);
+                .try_deposit(&deposit_bits, DepositSource::Recycled);
         }
 
         // Self-rekey: this chunk's TRNG output becomes next chunk's OTP.
@@ -357,7 +357,7 @@ async fn pipeline_receiver(
             .collect();
         if deposit_bits.len() >= 128 {
             let _ = recv_chat_pool.lock().await
-                .try_deposit(&deposit_bits, DepositSource::Trusted);
+                .try_deposit(&deposit_bits, DepositSource::Recycled);
         }
 
         // Log periodically (every ~20 chunks = 1 sec at default interval)
