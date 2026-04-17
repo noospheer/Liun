@@ -360,11 +360,11 @@ async fn pipeline_receiver(
                 .try_deposit(&deposit_bits, DepositSource::Recycled);
         }
 
-        // Log periodically (every ~20 chunks = 1 sec at default interval)
-        // by checking if pool size is a multiple of a threshold.
+        // Log sparingly — every ~10 MB so it doesn't flood the chat.
         let pool_size = recv_chat_pool.lock().await.available();
-        if pool_size % 4096 < (PIPELINE_CHUNK - PIPELINE_MAC_KEY_RESERVE) {
-            eprintln!("  \x1b[90m[pipeline] recv pool: {pool_size}B\x1b[0m");
+        if pool_size % (10 * 1024 * 1024) < (PIPELINE_CHUNK - PIPELINE_MAC_KEY_RESERVE) {
+            let mb = pool_size / (1024 * 1024);
+            eprintln!("  \x1b[90m[pipeline] pool: {mb} MB\x1b[0m");
         }
 
         // Self-rekey.
@@ -384,17 +384,26 @@ async fn pipeline_receiver(
 /// survives across reconnects.
 async fn run_session(
     stream: TcpStream,
-    send_pool: Arc<Mutex<Pool>>,
-    recv_pool: Arc<Mutex<Pool>>,
     psk: Vec<u8>,
     is_host: bool,
     mut stdin_rx: broadcast::Receiver<String>,
     mut shutdown_rx: broadcast::Receiver<()>,
 ) {
-    // MAC-failure diagnostics state. A failure on the very first message of
-    // a session (especially after a reconnect) is far more likely to mean
-    // "pool state diverged" than "tampering." Later failures, when everything
-    // was fine a moment ago, point at tampering or corruption.
+    // Fresh pools EVERY session — derived from PSK, guaranteed identical
+    // on both sides. Pipeline deposits from a prior TCP session are
+    // discarded; the pipeline refills at wire speed so the pool recovers
+    // in under a second. This eliminates the pool-desync-on-reconnect
+    // problem: no stale state carries across sessions.
+    let nonce_chat_a = [0u8; 16];
+    let mut nonce_chat_b = [0u8; 16]; nonce_chat_b[0] = 1;
+    let (send_nonce, recv_nonce) = if is_host {
+        (nonce_chat_a, nonce_chat_b)
+    } else {
+        (nonce_chat_b, nonce_chat_a)
+    };
+    let send_pool = Arc::new(Mutex::new(Pool::from_psk(&psk, &send_nonce)));
+    let recv_pool = Arc::new(Mutex::new(Pool::from_psk(&psk, &recv_nonce)));
+
     let mut first_recv_pending: bool = true;
     let mut consecutive_mac_failures: u32 = 0;
     let (reader, writer) = stream.into_split();
@@ -851,26 +860,10 @@ async fn main() {
         }
     };
 
-    // ── Pool + Toeplitz setup (lives for the whole process, survives reconnects) ──
-    //
-    // FOUR pools, not two, to prevent the exchange-chat cursor race:
-    //   - send_pool / recv_pool: used ONLY by chat encrypt/decrypt.
-    //   - ex_pool_a / ex_pool_b: used ONLY by the Liu exchange, alternating
-    //     by round parity. Exchange deposits go INTO the chat pools (net
-    //     positive key gain for chat); exchange OTP comes from the exchange
-    //     pools. Since exchange pools are never touched by chat, both peers'
-    //     cursors stay in lockstep across rounds regardless of chat traffic.
-    let nonce_chat_a = [0u8; 16];
-    let mut nonce_chat_b = [0u8; 16]; nonce_chat_b[0] = 1;
-    let (send_nonce, recv_nonce) = if is_host {
-        (nonce_chat_a, nonce_chat_b)
-    } else {
-        (nonce_chat_b, nonce_chat_a)
+    let initial_pool = {
+        let tmp = Pool::from_psk(&psk, &[0u8; 16]);
+        tmp.available()
     };
-
-    let send_pool = Arc::new(Mutex::new(Pool::from_psk(&psk, &send_nonce)));
-    let recv_pool = Arc::new(Mutex::new(Pool::from_psk(&psk, &recv_nonce)));
-    let initial_pool = send_pool.lock().await.available();
 
     // ── Persistent stdin task (lives for the whole process) ─────────────
     // Broadcast so each session can subscribe on reconnect without losing the
@@ -917,7 +910,7 @@ async fn main() {
             } else {
                 println!("  \x1b[32m[reconnected from {peer_addr} — session #{}, pool preserved]\x1b[0m", session_n);
             }
-            run_session(stream, send_pool.clone(), recv_pool.clone(), psk.clone(), true,
+            run_session(stream, psk.clone(), true,
                         stdin_tx.subscribe(), shutdown_handle.subscribe()).await;
             session_n += 1;
             if shutdown_handle.is_fired() { break; }
@@ -957,7 +950,7 @@ async fn main() {
             } else {
                 println!("  \x1b[32m[reconnected to {} — session #{}, pool preserved]\x1b[0m", cli.addr, session_n);
             }
-            run_session(stream, send_pool.clone(), recv_pool.clone(), psk.clone(), false,
+            run_session(stream, psk.clone(), false,
                         stdin_tx.subscribe(), shutdown_handle.subscribe()).await;
             session_n += 1;
             if shutdown_handle.is_fired() { break; }
