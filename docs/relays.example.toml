@@ -1,0 +1,25 @@
+# Example relays.toml — copy to ~/.config/liun/relays.toml and edit.
+#
+# Both peers in a chat session must have the SAME file (same order, same URLs).
+# k-path bootstrap splits a PSK across these relays; the derived PSK is
+# information-theoretically secret if at least ONE relay is unobserved by the
+# adversary. See docs/RELAY.md for the security model.
+#
+# Replace these placeholder URLs with real relays. For real security the three
+# relays should be run by three DIFFERENT operators on DIFFERENT networks in
+# DIFFERENT jurisdictions. All-AWS gives you k=1 against AWS.
+
+[[relay]]
+url = "http://relay1.example.com:8080"
+operator = "operator_one"
+jurisdiction = "DE"
+
+[[relay]]
+url = "http://relay2.example.org:8080"
+operator = "operator_two"
+jurisdiction = "US"
+
+[[relay]]
+url = "http://relay3.example.net:8080"
+operator = "operator_three"
+jurisdiction = "JP"

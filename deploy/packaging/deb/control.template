@@ -1,0 +1,17 @@
+Package: liun-node
+Version: __VERSION__
+Architecture: __ARCH__
+Maintainer: Liun Project <maintainer@example.com>
+Depends: libc6 (>= 2.17)
+Section: net
+Priority: optional
+Homepage: https://github.com/YOUR-ORG/liun-node
+Description: ITS-secure network node
+ Information-theoretically secure (ITS) key-agreement and messaging
+ protocol. Provides chat, multi-path bootstrap via relay dead-drops,
+ and a Kademlia DHT for peer discovery. Protocol-level security
+ formally verified in Lean 4; implementation-level hardening
+ documented in docs/SECURITY.md.
+ .
+ Requires a CPU with RDSEED for the full ITS claim; without it,
+ operates in computational-CSPRNG mode (documented).

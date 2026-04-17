@@ -1,0 +1,10 @@
+[package]
+name = "liun-consensus"
+version = "0.1.0"
+edition = "2024"
+description = "Trust-weighted BFT consensus with ITS signatures"
+
+[dependencies]
+liuproto-core = { path = "../liuproto-core" }
+liun-uss = { path = "../liun-uss" }
+liun-overlay = { path = "../liun-overlay" }

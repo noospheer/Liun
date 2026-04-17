@@ -1,0 +1,51 @@
+[Unit]
+Description=Liun ITS-secure network node
+Documentation=https://github.com/YOUR-ORG/liun-node/blob/main/docs/DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=liun
+Group=liun
+# Data dir must be writable by the liun user. `liun-node init` creates it
+# and the identity.toml/config.toml inside.
+ExecStart=/usr/local/bin/liun-node \
+    --data-dir /var/lib/liun \
+    --listen 0.0.0.0:7767 \
+    --dht-listen 0.0.0.0:7767 \
+    --admin-listen 127.0.0.1:9090 \
+    --config /etc/liun/config.toml \
+    --rng rdseed
+Restart=on-failure
+RestartSec=5
+# Graceful shutdown: SIGTERM → Liun saves DHT peers, zeroizes keys,
+# exits within a second. Second SIGTERM/SIGKILL forces after 10s.
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateTmp=yes
+PrivateDevices=no       # needs /dev/urandom (urandom mode) or access to RDSEED CPUID
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/liun
+ReadOnlyPaths=/etc/liun
+
+# Keep pool / identity in RAM; don't allow swap to write key material
+MemorySwapMax=0
+# Prefer mlock-style memory behavior (systemd honors this hint)
+AmbientCapabilities=CAP_IPC_LOCK
+
+[Install]
+WantedBy=multi-user.target

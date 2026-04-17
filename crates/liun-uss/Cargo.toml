@@ -1,0 +1,8 @@
+[package]
+name = "liun-uss"
+version = "0.1.0"
+edition = "2024"
+description = "Unconditionally Secure Signatures: threshold signing and verification over GF(M61)"
+
+[dependencies]
+liuproto-core = { path = "../liuproto-core" }

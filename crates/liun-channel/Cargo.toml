@@ -1,0 +1,15 @@
+[package]
+name = "liun-channel"
+version = "0.1.0"
+edition = "2024"
+description = "Liu ITS channel management: async TCP, key generation, reconnection"
+
+[dependencies]
+liuproto-core = { path = "../liuproto-core" }
+liun-receipts = { path = "../liun-receipts" }
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros", "rt-multi-thread"] }
+tracing = "0.1"
+bytes = "1"
+[[bin]]
+name = "bench_parallel"
+path = "src/bench_parallel.rs"

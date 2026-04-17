@@ -1,0 +1,37 @@
+[workspace]
+members = [
+    ".",
+    "crates/liuproto-core",
+    "crates/liun-channel",
+    "crates/liun-dht",
+    "crates/liun-dkg",
+    "crates/liun-uss",
+    "crates/liun-overlay",
+    "crates/liun-consensus",
+    "crates/liun-receipts",
+    "crates/liun-tally",
+]
+resolver = "2"
+
+[package]
+name = "liun-node"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+liuproto-core = { path = "crates/liuproto-core" }
+liun-channel = { path = "crates/liun-channel" }
+liun-dht = { path = "crates/liun-dht" }
+liun-dkg = { path = "crates/liun-dkg" }
+liun-uss = { path = "crates/liun-uss" }
+liun-overlay = { path = "crates/liun-overlay" }
+liun-consensus = { path = "crates/liun-consensus" }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+zeroize = "1"
+libc = "0.2"

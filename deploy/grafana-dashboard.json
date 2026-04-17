@@ -1,0 +1,119 @@
+{
+  "annotations": {"list": []},
+  "description": "Liun-node runtime dashboard. Depends on Prometheus scraping /metrics from every node.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "CSPRNG (computational)", "color": "red"}}},
+            {"type": "value", "options": {"1": {"text": "RDSEED (ITS)", "color": "green"}}}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "title": "RNG mode (ITS claim valid?)",
+      "type": "stat",
+      "targets": [{"expr": "liun_its", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "title": "Uptime (hours)",
+      "type": "stat",
+      "targets": [{"expr": "liun_uptime_seconds / 3600", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "id": 3,
+      "title": "DHT routing table size",
+      "type": "stat",
+      "targets": [{"expr": "liun_dht_routing_size", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "id": 4,
+      "title": "MAC failures (total)",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}
+        }
+      },
+      "targets": [{"expr": "liun_chat_mac_failures_total", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "id": 5,
+      "title": "Pool size over time",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "liun_send_pool_bytes", "legendFormat": "send @ {{instance}}"},
+        {"expr": "liun_recv_pool_bytes", "legendFormat": "recv @ {{instance}}"}
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "id": 6,
+      "title": "Chat message rates",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(liun_chat_messages_sent_total[5m])", "legendFormat": "sent @ {{instance}}"},
+        {"expr": "rate(liun_chat_messages_received_total[5m])", "legendFormat": "received @ {{instance}}"}
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "id": 7,
+      "title": "Liu refresh rounds",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(liun_liu_rounds_total[5m])", "legendFormat": "completed @ {{instance}}"},
+        {"expr": "rate(liun_liu_round_failures_total[5m])", "legendFormat": "failed @ {{instance}}"}
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "id": 8,
+      "title": "DHT query traffic",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(liun_dht_queries_received_total[5m])", "legendFormat": "received @ {{instance}}"},
+        {"expr": "rate(liun_dht_responses_sent_total[5m])", "legendFormat": "sent @ {{instance}}"}
+      ]
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 20},
+      "id": 9,
+      "title": "RDSEED retries (health of hardware TRNG)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "rate(liun_rdseed_retries_total[5m])", "legendFormat": "retries/sec @ {{instance}}"}
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["liun", "its", "crypto"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "",
+  "title": "Liun-node",
+  "version": 1
+}

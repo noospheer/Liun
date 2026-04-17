@@ -1,0 +1,130 @@
+# Prometheus alerting rules for Liun. Drop into your Prometheus
+# rules_files config. Metric names match what /metrics exposes.
+#
+# Calibrate thresholds to your deployment — these are conservative
+# defaults for a small (≤ 100 nodes) mesh.
+
+groups:
+  - name: liun-node
+    interval: 30s
+    rules:
+      # ── Critical: MAC tampering ─────────────────────────────────────
+      - alert: LiunMacFailuresSpike
+        expr: |
+          rate(liun_chat_mac_failures_total[2m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          domain: crypto
+        annotations:
+          summary: "Liun chat MAC verification failing on {{ $labels.instance }}"
+          description: |
+            MAC failures are {{ $value }} per second for 1+ minute. Possible
+            causes (in order of likelihood):
+              1. Pool state desync across a TCP drop — remedy by forcing a
+                 re-bootstrap with a fresh session-id.
+              2. On-path tampering attempt — disconnect immediately,
+                 investigate the network path.
+              3. Memory corruption — check system logs for hardware errors.
+
+      # ── Critical: ITS downgrade ─────────────────────────────────────
+      - alert: LiunCsprngMode
+        expr: liun_its == 0
+        for: 5m
+        labels:
+          severity: critical
+          domain: crypto
+        annotations:
+          summary: "Liun running on CSPRNG on {{ $labels.instance }}"
+          description: |
+            Node is running with --rng urandom (CSPRNG). ITS claims do NOT
+            hold in this mode. Restart with --rng rdseed if the CPU supports
+            it. Check /health to confirm: "its": true required.
+
+      # ── Warning: RDSEED stress ──────────────────────────────────────
+      - alert: LiunRdseedRetrying
+        expr: |
+          rate(liun_rdseed_retries_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          domain: rng
+        annotations:
+          summary: "Hardware TRNG retry rate elevated on {{ $labels.instance }}"
+          description: |
+            RDSEED is returning "no data, retry" at {{ $value }} retries/sec.
+            Normal rate is essentially 0. Sustained retries suggest CPU-
+            level DRNG overload, thermal throttling, or hardware issue.
+            Below 10/sec is tolerable; above 100/sec indicates a real
+            problem.
+
+      # ── Warning: pool draining ──────────────────────────────────────
+      - alert: LiunPoolLow
+        expr: |
+          liun_send_pool_bytes < 1000 or liun_recv_pool_bytes < 1000
+        for: 2m
+        labels:
+          severity: warning
+          domain: protocol
+        annotations:
+          summary: "OTP pool low on {{ $labels.instance }}"
+          description: |
+            send_pool={{ $labels.liun_send_pool_bytes }}B,
+            recv_pool={{ $labels.liun_recv_pool_bytes }}B. Below 1000B means
+            ~10 messages of headroom before exhaustion. Liu refresh should
+            top up; if the pool doesn't recover within a few minutes, the
+            refresh is stalled. Check liun_liu_round_failures_total.
+
+      - alert: LiunPoolExhausted
+        expr: |
+          liun_send_pool_bytes < 100 or liun_recv_pool_bytes < 100
+        for: 30s
+        labels:
+          severity: critical
+          domain: protocol
+        annotations:
+          summary: "Liun pool near exhaustion on {{ $labels.instance }}"
+          description: |
+            Pool below 100 bytes — next chat message will fail. Investigate
+            Liu refresh pipeline and network to peer.
+
+      # ── Warning: Liu refresh failing ────────────────────────────────
+      - alert: LiunRefreshFailing
+        expr: |
+          rate(liun_liu_round_failures_total[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          domain: protocol
+        annotations:
+          summary: "Liu refresh rounds failing on {{ $labels.instance }}"
+          description: |
+            Round failure rate = {{ $value }}/sec over 10m. If sustained,
+            the pool will eventually exhaust. Check the peer link.
+
+      # ── Warning: DHT isolation ──────────────────────────────────────
+      - alert: LiunDhtIsolated
+        expr: liun_dht_routing_size < 2
+        for: 10m
+        labels:
+          severity: warning
+          domain: dht
+        annotations:
+          summary: "DHT routing table nearly empty on {{ $labels.instance }}"
+          description: |
+            Only {{ $value }} peers in routing table. This node is either
+            brand new (expected briefly) or has lost contact with the
+            network. Check seed reachability.
+
+      # ── Info: node up ───────────────────────────────────────────────
+      - alert: LiunDown
+        expr: up{job="liun"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          domain: availability
+        annotations:
+          summary: "Liun node {{ $labels.instance }} is down"
+          description: |
+            Prometheus can't scrape /metrics on {{ $labels.instance }} for
+            2+ minutes. Check process status and admin HTTP binding.

@@ -1,0 +1,15 @@
+[package]
+name = "liun-dht"
+version = "0.1.0"
+edition = "2024"
+description = "Kademlia DHT for Liun node discovery. Post-computational-crypto safe: unauthenticated hints verified via ITS handshake."
+
+[dependencies]
+liuproto-core = { path = "../liuproto-core" }
+liun-receipts = { path = "../liun-receipts" }
+tokio = { version = "1", features = ["net", "io-util", "time", "rt", "macros", "sync"] }
+
+[dev-dependencies]
+proptest = "1"
+getrandom = "0.3"
+tokio = { version = "1", features = ["full"] }

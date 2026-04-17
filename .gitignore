@@ -1,0 +1,11 @@
+target/
+devnet/node-*/
+devnet/logs/
+devnet/pids/
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+*.log
+*.pid
+.github/workflows/

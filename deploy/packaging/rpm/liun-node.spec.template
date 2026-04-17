@@ -1,0 +1,56 @@
+Name:           liun-node
+Version:        __VERSION__
+Release:        1%{?dist}
+Summary:        ITS-secure network node
+License:        Apache-2.0 AND MIT
+URL:            https://github.com/YOUR-ORG/liun-node
+Source0:        %{name}-%{version}.tar.gz
+BuildRequires:  rust >= 1.83, cargo
+Requires:       glibc
+
+%description
+Information-theoretically secure (ITS) key-agreement and messaging
+protocol. Provides chat, multi-path bootstrap via relay dead-drops,
+and a Kademlia DHT for peer discovery.
+
+%prep
+%autosetup
+
+%build
+cargo build --locked --release \
+    --bin liun-node --bin chat --bin relay --bin groupchat
+
+%install
+install -Dm 0755 target/release/liun-node %{buildroot}%{_bindir}/liun-node
+install -Dm 0755 target/release/chat      %{buildroot}%{_bindir}/liun-chat
+install -Dm 0755 target/release/relay     %{buildroot}%{_bindir}/liun-relay
+install -Dm 0755 target/release/groupchat %{buildroot}%{_bindir}/liun-groupchat
+install -Dm 0644 deploy/liun-node.service %{buildroot}%{_unitdir}/liun-node.service
+
+%pre
+getent group liun >/dev/null || groupadd -r liun
+getent passwd liun >/dev/null || \
+    useradd -r -g liun -d /var/lib/liun -s /sbin/nologin \
+            -c "Liun ITS node" liun
+
+%post
+install -d -o liun -g liun -m 0750 /var/lib/liun
+install -d -o liun -g liun -m 0755 /etc/liun
+%systemd_post liun-node.service
+
+%preun
+%systemd_preun liun-node.service
+
+%postun
+%systemd_postun_with_restart liun-node.service
+
+%files
+%{_bindir}/liun-node
+%{_bindir}/liun-chat
+%{_bindir}/liun-relay
+%{_bindir}/liun-groupchat
+%{_unitdir}/liun-node.service
+
+%changelog
+* Mon Apr 14 2026 Liun Project <maintainer@example.com> - __VERSION__-1
+- Initial package.

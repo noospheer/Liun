@@ -1,0 +1,70 @@
+# cargo-deny policy — run via `cargo deny check`.
+# Catches dependency issues that cargo-audit doesn't: bad licenses,
+# duplicate major versions, and policy violations that we'd want to
+# review before updating Cargo.lock.
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-musl",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+    "aarch64-unknown-linux-gnu",
+]
+
+[output]
+feature-depth = 1
+
+# ── Advisories ────────────────────────────────────────────────────────
+# Vulnerabilities and yanked crates cause errors.
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+ignore = []
+
+# ── Licenses ──────────────────────────────────────────────────────────
+# Accept common OSI-approved permissive licenses. Reject anything else
+# so we notice if a dep changes its license.
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",      # required by unicode-ident since 1.0.13
+    "Unicode-DFS-2016", # legacy unicode data
+    "Zlib",
+    "CC0-1.0",
+    "MPL-2.0",
+    "BSL-1.0",
+]
+confidence-threshold = 0.8
+
+# ── Bans ──────────────────────────────────────────────────────────────
+# Duplicate major versions are a code-size and security concern (twice
+# the audit surface). Warn for now; escalate to error if the list stays
+# manageable.
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"  # no "x = '*'" — always pin a version
+
+# Crates we explicitly do NOT want:
+deny = [
+    # Known unmaintained / unsafe:
+    # { name = "openssl", reason = "we use no TLS in the protocol; refuse" },
+]
+
+# Crates we allow even if multiple-versions would flag them:
+skip = []
+
+# ── Sources ───────────────────────────────────────────────────────────
+# Only allow crates from crates.io. Git deps would be a supply-chain
+# concern and should require explicit sign-off.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

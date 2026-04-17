@@ -1,0 +1,30 @@
+#!/bin/sh
+# Post-install for liun-node .deb.
+
+set -e
+
+# 1. Create system user if missing.
+if ! getent passwd liun >/dev/null; then
+    adduser --system --no-create-home --home /var/lib/liun \
+            --group --shell /usr/sbin/nologin liun
+fi
+
+# 2. Create state + config dirs.
+install -d -o liun -g liun -m 0750 /var/lib/liun
+install -d -o liun -g liun -m 0755 /etc/liun
+
+# 3. Enable but do not start the service. Operator must run
+#    `liun-node init` first to generate identity + config.
+if [ -x /usr/bin/systemctl ]; then
+    systemctl daemon-reload || true
+    echo
+    echo "  liun-node installed."
+    echo
+    echo "  Next steps (as root):"
+    echo "    sudo -u liun /usr/bin/liun-node --data-dir /var/lib/liun init --defaults"
+    echo "    sudo cp /var/lib/liun/config.toml /etc/liun/config.toml"
+    echo "    sudo systemctl enable --now liun-node"
+    echo
+fi
+
+exit 0

@@ -1,0 +1,13 @@
+[package]
+name = "liun-tally"
+version = "0.1.0"
+edition = "2024"
+description = "Deterministic payout tally for the Liun public-goods funding pool — a pure function any node can re-run"
+
+[dependencies]
+liuproto-core = { path = "../liuproto-core" }
+liun-receipts = { path = "../liun-receipts" }
+sha3 = "0.10"
+
+[dev-dependencies]
+getrandom = "0.3"
