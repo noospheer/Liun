@@ -385,12 +385,15 @@ Tests cover everything else.
 | **Pool XOR recycling** | Bit pack/unpack + deposit | XORBias ✅ | Roundtrip ✅, preserves bits ✅ | unit ✅ |
 | **k-path bootstrap** | XOR share reconstruction | MultiPathXOR ✅ | Order-independent ✅, bijection ✅ | integration ✅ |
 | **Bayesian trust** | log(t) × log(d) × laplace | — | — | unit ✅ |
+| **Funding economics** | Sybil-proof allocation | Economics ✅ | — | — |
 | **DHT discovery** | Kademlia routing | — | — | integration + fuzz ✅ |
 | **Relay HTTP** | Share dead-drop | — | — | integration ✅ |
 | **Pool persistence** | Atomic write + CRC-32 | — | — | unit ✅ |
 | **TCP framing** | 4-byte mux header | — | — | nettest ✅ |
 | **RNG backends** | rdseed/rndr/trandom/urandom | — | — | unit ✅ |
 | **LiunPool.sol** | ETH funding contract | — | — | forge ✅ |
+| **Pool never empties** | Percentage-based drain | Economics ✅ | — | — |
+| **Sybil share bound** | Trust + service + allocation | Economics + SybilResistance ✅ | — | — |
 
 **Legend:** ✅ = machine-verified or exhaustively tested.
 
