@@ -382,6 +382,7 @@ The Lean proofs cover the ALGORITHM. [Kani](https://github.com/model-checking/ka
 | `gf61_add_in_range` | add output ∈ [0, M61) for ALL inputs | All theorems (field axiom) |
 | `gf61_mul_in_range` | mul output ∈ [0, M61) (128-bit reduce correct) | SchwartzZippel, WegmanCarter |
 | `gf61_add_commutative` | a + b == b + a | Field axiom |
+| `gf61_mul_identity` | a * 1 == a | Field axiom |
 | `gf61_neg_is_additive_inverse` | -x + x == 0 | WegmanCarter (cancellation) |
 | `gf61_distributive` | a*(b+c) == a*b + a*c | SchwartzZippel (polynomial eval) |
 | `mac_empty_returns_s` | mac([]) = s | Horner base case |
