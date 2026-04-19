@@ -36,7 +36,7 @@ Production Rust implementation of the Liu protocol suite (Liup + Liun).
 
 1. **Find each other** — Nodes form a peer-to-peer network. When you join, you ask nearby nodes "where is Bob?" and they point you closer until you find him. No central server.
 
-2. **Establish a shared secret** — On first contact, Alice and Bob exchange random noise over the network to build a shared secret key. This uses physics (hardware random number generators), not math problems — so there's no equation to solve, no code to crack.
+2. **Establish a shared secret** — On first contact, Alice and Bob exchange random noise over the network to build a shared secret key. The secret is split across multiple independent relays so that no single observer can intercept the whole thing — an attacker would need to tap every relay simultaneously. This uses physics (hardware random number generators), not math problems — so there's no equation to solve, no code to crack.
 
 3. **Chat directly** — Once they share a secret, Alice and Bob talk directly to each other over a normal internet connection. Each message is encrypted with a one-time pad — the only encryption method mathematically proven to be unbreakable (Shannon, 1949).
 
