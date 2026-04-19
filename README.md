@@ -30,6 +30,20 @@ Production Rust implementation of the Liu protocol suite (Liup + Liun).
 
 **228 Rust tests + 16 forge tests + 21 Kani proofs. Zero failures.**
 
+## How it works
+
+**Encrypted chat that no computer — not even a quantum computer — can ever break.**
+
+1. **Find each other** — Nodes form a peer-to-peer network. When you join, you ask nearby nodes "where is Bob?" and they point you closer until you find him. No central server.
+
+2. **Establish a shared secret** — On first contact, Alice and Bob exchange random noise over the network to build a shared secret key. This uses physics (hardware random number generators), not math problems — so there's no equation to solve, no code to crack.
+
+3. **Chat directly** — Once they share a secret, Alice and Bob talk directly to each other over a normal internet connection. Each message is encrypted with a one-time pad — the only encryption method mathematically proven to be unbreakable (Shannon, 1949).
+
+4. **Self-sustaining** — The shared secret replenishes itself as they communicate. If the connection drops, they reconnect and pick up where they left off. The network is only needed again if they lose their key material entirely.
+
+**The network is just a phone book.** Nodes help strangers find each other and establish that first shared secret. After that, they don't need the network anymore.
+
 ## Why this exists
 
 **Liun is information-theoretically secure** (ITS) — Shannon-style,
