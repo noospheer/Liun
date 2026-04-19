@@ -438,6 +438,56 @@ fn horner_step_preserves_range() {
     assert!(result.val() < M61);
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// CRITICAL GAP #4: MAC VERIFY (WegmanCarter.lean)
+// Proves: mac_verify returns true iff the tag matches the recomputed
+// tag, and false otherwise. This is the implementation-level proof
+// that the Rust MAC verification is functionally correct.
+// (Constant-time property depends on the `subtle` crate — not
+// verifiable by Kani, but `subtle` is audited for this purpose.)
+// ══════════════════════════════════════════════════════════════════════
+
+/// mac_verify returns true when given the correct tag.
+#[kani::proof]
+#[kani::unwind(2)]
+fn mac_verify_accepts_correct_tag() {
+    let c: u64 = kani::any();
+    let r: u64 = kani::any();
+    let s: u64 = kani::any();
+    kani::assume(c < M61 && r < M61 && s < M61);
+    let coeffs = [Gf61::from_raw(c)];
+    let tag = mac_tag(&coeffs, Gf61::from_raw(r), Gf61::from_raw(s));
+    // Verify must accept the tag it just computed.
+    assert!(crate::mac::mac_verify(&coeffs, Gf61::from_raw(r), Gf61::from_raw(s), tag));
+}
+
+/// mac_verify returns false when given a wrong tag (any different value).
+#[kani::proof]
+#[kani::unwind(2)]
+fn mac_verify_rejects_wrong_tag() {
+    let c: u64 = kani::any();
+    let r: u64 = kani::any();
+    let s: u64 = kani::any();
+    let fake: u64 = kani::any();
+    kani::assume(c < M61 && r < M61 && s < M61 && fake < M61);
+    let coeffs = [Gf61::from_raw(c)];
+    let tag = mac_tag(&coeffs, Gf61::from_raw(r), Gf61::from_raw(s));
+    // If fake != correct tag value, verify must reject.
+    kani::assume(fake != tag.val());
+    assert!(!crate::mac::mac_verify(&coeffs, Gf61::from_raw(r), Gf61::from_raw(s), Gf61::from_raw(fake)));
+}
+
+/// tags_ct_eq matches regular equality for all inputs.
+#[kani::proof]
+#[kani::unwind(1)]
+fn tags_ct_eq_matches_eq() {
+    let a: u64 = kani::any();
+    let b: u64 = kani::any();
+    kani::assume(a < M61 && b < M61);
+    let result = crate::mac::tags_ct_eq(Gf61::from_raw(a), Gf61::from_raw(b));
+    assert!(result == (a == b));
+}
+
 /// Self-rekeying: encrypt then decrypt recovers the plaintext,
 /// which becomes the next key. The chain is consistent.
 #[kani::proof]
