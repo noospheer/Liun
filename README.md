@@ -364,7 +364,7 @@ Tests cover everything else.
 | **GF(M61) mul** | 128-bit multiply + reduce | SchwartzZippel ✅ | Closure ✅, identity ✅ | proptest ✅ |
 | **MAC Horner eval** | Polynomial tag computation | WegmanCarter ✅ | Base cases (0,1 coeff) ✅, inductive step ✅ | proptest ✅ |
 | **MAC verify** | Constant-time tag compare | WegmanCarter ✅ | Accepts correct ✅, rejects wrong ✅, ct_eq ✅ | unit ✅ |
-| **MAC parallel4** | 4-way Horner optimization | (equivalence) | proptest only ⚠️ | proptest ✅ |
+| **MAC parallel4** | 4-way Horner optimization | (equivalence) | mul commutativity ✅ (Bitwuzla), proptest ✅ | proptest ✅ |
 | **OTP XOR** | One-time pad encrypt/decrypt | PipelineCourier ✅ | Involutory ✅, zero identity ✅ | unit ✅ |
 | **Self-rekeying chain** | Pipeline courier key update | PipelineCourier (induction) ✅ | Chain consistency ✅ | unit ✅ |
 | **Forgery bound** | ≤ d/M61 per chunk, < 10⁻¹⁴ | PipelineCourier ✅ | (follows from MAC + field) ✅ | — |
@@ -378,7 +378,11 @@ Tests cover everything else.
 | **RNG backends** | rdseed/rndr/trandom/urandom | — | — | unit ✅ |
 | **LiunPool.sol** | ETH funding contract | — | — | forge ✅ |
 
-**Legend:** ✅ = machine-verified or exhaustively tested. ⚠️ = proptest-covered but not exhaustively proven (algebraically follows from verified primitives).
+**Legend:** ✅ = machine-verified or exhaustively tested.
+
+Verification tools: [Lean 4](https://lean-lang.org) (algorithm proofs),
+[Kani](https://github.com/model-checking/kani) (Rust bounded model checking via CBMC),
+[Bitwuzla](https://bitwuzla.github.io) (SMT bitvector proofs for chained 128-bit multiply).
 
 ### What this means
 
