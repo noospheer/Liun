@@ -24,7 +24,7 @@ IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
 OF SUCH DAMAGE.
 ```
 
-# liun-node: ITS-Secure Network Node
+# Liun: Information-Theoretically Secure (ITS) Network Node
 
 Production Rust implementation of the Liu protocol suite (Liup + Liun).
 
@@ -386,6 +386,37 @@ The Rust implementation matches the proved algorithms:
 - `pool` recycling matches `XORBias.lean` (constant per-bit security)
 - `trust` auto-trust matches `SybilResistance.lean` (attack trust bounded)
 - `pipeline courier` matches `PipelineCourier.lean` (self-rekeying chain induction: Eve's bias on every key = 0 for any number of chunks T, proved by `Nat.rec`; per-chunk forgery < 10⁻¹⁴; 1 GB total < 10⁻⁸)
+
+## Security model — what Eve can and cannot do
+
+**Eve CANNOT (regardless of compute budget):**
+- Read encrypted traffic (OTP, Shannon — proved in Lean + Kani)
+- Forge a MAC (Schwartz-Zippel ≤ d/M61 — proved)
+- Predict future keys (self-rekeying chain — proved)
+- Read past traffic after node compromise (pools are fresh per session)
+- Farm trust cheaply (Bayesian: requires time × diversity × correctness)
+- Build trust from a Sybil cluster (unreachable from seed → zero)
+
+**Eve CAN:**
+
+| Attack | Impact | Mitigation |
+|---|---|---|
+| Observe all k relay paths (shares travel plain HTTP; an ISP/backbone sees all k shares) | PSK compromised for that session | Use relays on physically diverse networks (WiFi + cellular + Tor) |
+| Traffic analysis (who talks to whom, when, how much) | Metadata leak | Auto-trust cover traffic helps; onion routing would fix — not built |
+| Compromise the genesis seed | Topology mapping, trust influence (not traffic reading) | Multiple independent seeds on different infrastructure |
+| DoS via trust burst flooding | Availability loss | DHT rate-limited; trust bursts need connection-level limiting |
+| Capture node storage (`~/.liun/`) | Impersonation (not past traffic) | Disk encryption, file permissions |
+
+**The biggest honest gap:** k-path bootstrap sends shares over plain HTTP.
+The ITS claim assumes Eve can't observe the network path to at least one
+relay. On the real internet, an ISP-level adversary may see all paths.
+This is a **deployment assumption**, not a protocol flaw — the fix is
+operational (physically diverse relay networks) or requires adding a
+transport layer (TLS/Tor) at the bootstrap edge.
+
+The protocol layer is sound. The deployment assumptions need operator
+diligence. See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the
+full adversary taxonomy.
 
 ## Configuration
 

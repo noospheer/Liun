@@ -176,15 +176,26 @@ ECDSA / ECDH / discrete log in polynomial time.
 
 Things we **don't** currently mitigate and are honest about:
 
-- **Traffic analysis.** Metadata (when, how much, to whom) leaks. A
-  Tor-equivalent transport layer would help; not built in.
+- **Traffic analysis.** Metadata (when, how much, to whom) leaks.
+  Auto-trust cover traffic helps (constant trickle of connections to
+  neighbors regardless of chat activity) but doesn't fully anonymize.
+  Onion routing would fix; not built.
+- **k-path relay observation.** Bootstrap shares travel plain HTTP.
+  An ISP or backbone observer can see all k shares regardless of
+  how many relays you use, because the shares traverse the same
+  physical network. The ITS bootstrap claim assumes NETWORK PATH
+  diversity (Eve can't tap the wire to ≥1 relay), not just relay
+  operator diversity. Fix: use physically diverse networks per relay
+  (WiFi + cellular + Tor) or add TLS to relay transport (introduces
+  comp-crypto at the bootstrap edge only).
 - **Side channels beyond timing.** Cache attacks, Spectre-class
   transient-execution leaks, power analysis, EM emissions. Not
   addressed. Constant-time discipline at source level helps against
   naive timing only.
-- **Active denial of service.** Rate-limiting at the DHT is a mitigation,
-  not a solution. A well-resourced attacker can exhaust a single node's
-  network or compute.
+- **Active denial of service.** DHT queries are rate-limited (1000/10s
+  per IP). Trust burst connections are NOT rate-limited — an attacker
+  flooding a node with handshake attempts can exhaust resources.
+  Connection-level rate limiting for trust bursts is needed.
 - **Eclipse attacks.** A new node joining via a malicious seed can be
   isolated from the real network. Mitigation is multi-path bootstrap
   (k ≥ 20 diverse relays); the code supports this but requires actual
