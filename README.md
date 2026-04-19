@@ -370,7 +370,30 @@ and reconnect resilience, but not for raw throughput.
 ## Security Proofs
 
 All cryptographic properties are machine-verified in Lean 4 — see [LiupProofs/](../LiupProofs/).
-31 files, zero `sorry`, zero errors. The Rust implementation matches the proved algorithms:
+31 files, zero `sorry`, zero errors.
+
+### Kani verification (Rust↔Lean bridge)
+
+The Lean proofs cover the ALGORITHM. [Kani](https://github.com/model-checking/kani)
+(bounded model checker for Rust) proves the IMPLEMENTATION matches:
+
+| Harness | What it proves | Lean dependency |
+|---|---|---|
+| `gf61_add_in_range` | add output ∈ [0, M61) for ALL inputs | All theorems (field axiom) |
+| `gf61_mul_in_range` | mul output ∈ [0, M61) (128-bit reduce correct) | SchwartzZippel, WegmanCarter |
+| `gf61_add_commutative` | a + b == b + a | Field axiom |
+| `gf61_neg_is_additive_inverse` | -x + x == 0 | WegmanCarter (cancellation) |
+| `gf61_distributive` | a*(b+c) == a*b + a*c | SchwartzZippel (polynomial eval) |
+| `mac_empty_returns_s` | mac([]) = s | Horner base case |
+| `mac_single_coeff` | mac([c0]) = c0 + s | Horner degree-0 |
+| `mac_two_coeffs_is_horner` | mac([c0,c1]) = c0*r + c1 + s | Horner degree-1 |
+| `parallel4_equals_scalar` | 4-way Horner == scalar for all inputs | Implementation equivalence |
+| `xor_involutory` | (a ⊕ k) ⊕ k == a | PipelineCourier (OTP) |
+| `self_rekey_consistent` | encrypt→decrypt→rekey chain correct | PipelineCourier (chain) |
+
+Together: Lean proves "correct algorithm → ITS." Kani proves "Rust code = correct algorithm." Therefore: **Rust code → ITS.**
+
+The Rust implementation matches the proved algorithms:
 
 - `gf61` arithmetic matches `SchwartzZippel.lean` (polynomial root bound)
 - `mac` Horner evaluation matches `WegmanCarter.lean` (forgery ≤ d/|F|)
