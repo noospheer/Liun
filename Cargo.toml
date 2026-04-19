@@ -4,10 +4,7 @@ members = [
     "crates/liuproto-core",
     "crates/liun-channel",
     "crates/liun-dht",
-    "crates/liun-dkg",
-    "crates/liun-uss",
     "crates/liun-overlay",
-    "crates/liun-consensus",
     "crates/liun-receipts",
     "crates/liun-tally",
 ]
@@ -22,10 +19,7 @@ edition = "2024"
 liuproto-core = { path = "crates/liuproto-core" }
 liun-channel = { path = "crates/liun-channel" }
 liun-dht = { path = "crates/liun-dht" }
-liun-dkg = { path = "crates/liun-dkg" }
-liun-uss = { path = "crates/liun-uss" }
 liun-overlay = { path = "crates/liun-overlay" }
-liun-consensus = { path = "crates/liun-consensus" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"

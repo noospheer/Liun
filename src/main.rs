@@ -22,14 +22,8 @@ use liuproto_core::storage::StateDir;
 use liun_channel::channel::ChannelConfig;
 use liun_channel::manager::ChannelManager;
 use liun_dht::{DhtConfig, DhtNode};
-use liun_dkg::{Dkg, DkgParams};
-use liun_uss::signer::PartialSigner;
-use liun_uss::verifier::Verifier;
-use liun_uss::shamir::Share;
 use liun_overlay::bootstrap::{BootstrapConfig, BootstrapSession};
-use liun_overlay::peer_intro;
 use liun_overlay::trust::TrustGraph;
-use liun_consensus::{self, Attestation, Decision, BFT_THRESHOLD};
 
 #[derive(Parser)]
 #[command(name = "liun-node", about = "ITS-secure network node")]
@@ -196,20 +190,12 @@ impl Default for Config {
     }
 }
 
-/// The complete node state: channels + DKG + signing + trust + persistence.
+/// The complete node state: channels + trust + persistence.
 struct Node {
     id: u64,
     config: Config,
     channels: ChannelManager,
     trust_graph: TrustGraph,
-    dkg_params: DkgParams,
-    /// Our signing share from the latest DKG epoch.
-    signing_share: Option<Share>,
-    /// Verification points for signature checking.
-    verification_points: Vec<(Gf61, Gf61)>,
-    /// Signatures issued this epoch.
-    sig_count: usize,
-    /// Persistent state directory.
     state_dir: Option<StateDir>,
 }
 
@@ -220,16 +206,11 @@ impl Node {
             mod_mult: 1.0 / config.sigma_over_p,
             ..Default::default()
         };
-        let dkg_params = DkgParams::new(config.n_nodes);
 
         Self {
             id,
             channels: ChannelManager::new(id, channel_config),
             trust_graph: TrustGraph::new(),
-            dkg_params,
-            signing_share: None,
-            verification_points: Vec::new(),
-            sig_count: 0,
             config,
             state_dir: None,
         }
@@ -311,106 +292,7 @@ impl Node {
         established
     }
 
-    /// Phase 1: Peer introduction — establish channel with a new peer
-    /// via m existing channel peers.
-    fn peer_introduce(&mut self, new_peer: u64, introducer_ids: &[u64]) {
-        // Each introducer generates a random PSK component
-        let components: Vec<Vec<u8>> = introducer_ids.iter().map(|_| {
-            liuproto_core::noise::random_bytes(256)
-        }).collect();
 
-        // XOR combine — if ≥1 introducer is honest, PSK is perfectly secret
-        let psk = peer_intro::combine_psk_components(&components);
-        let nonce = [0u8; 16];
-        if psk.len() >= 32 {
-            self.channels.add_channel(new_peer, &psk, &nonce);
-            self.trust_graph.add_channel(self.id, new_peer, 1.0);
-            info!(node = self.id, peer = new_peer, introducers = introducer_ids.len(),
-                "peer introduced");
-        }
-    }
-
-    /// Phase 2: Run DKG to generate threshold signing polynomial.
-    fn run_dkg(&mut self, all_node_ids: &[u64]) {
-        let n = all_node_ids.len();
-        let params = DkgParams::new(n);
-        let our_idx = all_node_ids.iter().position(|&id| id == self.id)
-            .expect("our ID not in node list");
-
-        let mut dkg = Dkg::new(our_idx, params.clone());
-
-        // Generate our contribution
-        dkg.generate_contribution();
-
-        // In production: send shares to each node over ITS channel
-        // For now: simulate by receiving our own share from our own contribution
-        // (In real protocol, we'd receive from ALL nodes)
-        let our_share_x = Gf61::new((our_idx + 1) as u64);
-        let our_share_y = Gf61::new(42); // placeholder
-        dkg.receive_share(our_idx, Share { x: our_share_x, y: our_share_y });
-
-        // In production: receive shares from all other nodes, verify, combine
-        // For now: store our own combined share
-        let combined = dkg.combine();
-        self.signing_share = Some(combined);
-        self.dkg_params = params;
-        self.sig_count = 0;
-
-        info!(node = self.id, threshold = self.dkg_params.threshold,
-            degree = self.dkg_params.degree,
-            budget = self.dkg_params.signature_budget(),
-            "DKG complete");
-    }
-
-    /// Phase 3: Sign a message (partial signature).
-    fn sign(&mut self, message: u64, committee_ids: &[u64]) -> Option<Gf61> {
-        let share = self.signing_share?;
-
-        // Check signature budget
-        if self.sig_count >= self.dkg_params.signature_budget() {
-            warn!(node = self.id, "signature budget exhausted, need epoch rotation");
-            return None;
-        }
-
-        let signer = PartialSigner::new(share.x.val(), share.y);
-        let msg = Gf61::new(message);
-        let partial = signer.partial_sign(msg, committee_ids);
-
-        self.sig_count += 1;
-        info!(node = self.id, message, sig_count = self.sig_count, "partial signature");
-        Some(partial)
-    }
-
-    /// Phase 4: Verify a signature.
-    fn verify(&self, message: u64, signature: Gf61) -> bool {
-        if self.verification_points.len() <= self.dkg_params.degree {
-            warn!(node = self.id, "insufficient verification points");
-            return false;
-        }
-
-        let verifier = Verifier::new(
-            self.verification_points.iter().map(|&(x, _)| x).collect(),
-            self.verification_points.iter().map(|&(_, y)| y).collect(),
-            self.dkg_params.degree,
-        );
-        verifier.verify(Gf61::new(message), signature)
-    }
-
-    /// Phase 5: Check consensus on a signed message.
-    fn check_consensus(&self, attestations: &[Attestation]) -> Decision {
-        let trust = self.trust_graph.personalized_pagerank(
-            self.id,
-            liun_overlay::trust::DEFAULT_DAMPING,
-            liun_overlay::trust::DEFAULT_ITERATIONS,
-        );
-        liun_consensus::check_consensus(attestations, &trust, BFT_THRESHOLD)
-    }
-
-    /// Rotate epoch: run new DKG with fresh signing polynomial.
-    fn rotate_epoch(&mut self, all_node_ids: &[u64]) {
-        info!(node = self.id, old_sigs = self.sig_count, "rotating epoch");
-        self.run_dkg(all_node_ids);
-    }
 }
 
 /// Resolve `~/...` paths against $HOME.

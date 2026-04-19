@@ -298,15 +298,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "liun-consensus"
-version = "0.1.0"
-dependencies = [
- "liun-overlay",
- "liun-uss",
- "liuproto-core",
-]
-
-[[package]]
 name = "liun-dht"
 version = "0.1.0"
 dependencies = [
@@ -318,25 +309,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "liun-dkg"
-version = "0.1.0"
-dependencies = [
- "liun-uss",
- "liuproto-core",
-]
-
-[[package]]
 name = "liun-node"
 version = "0.1.0"
 dependencies = [
  "clap",
  "libc",
  "liun-channel",
- "liun-consensus",
  "liun-dht",
- "liun-dkg",
  "liun-overlay",
- "liun-uss",
  "liuproto-core",
  "serde",
  "serde_json",
@@ -379,13 +359,6 @@ dependencies = [
  "liun-receipts",
  "liuproto-core",
  "sha3",
-]
-
-[[package]]
-name = "liun-uss"
-version = "0.1.0"
-dependencies = [
- "liuproto-core",
 ]
 
 [[package]]

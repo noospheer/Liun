@@ -1,9 +1,0 @@
-[package]
-name = "liun-dkg"
-version = "0.1.0"
-edition = "2024"
-description = "Distributed Key Generation: threshold polynomial sharing over ITS channels"
-
-[dependencies]
-liuproto-core = { path = "../liuproto-core" }
-liun-uss = { path = "../liun-uss" }

@@ -218,9 +218,8 @@ What they **cannot** do:
   doesn't enforce it.
 - **Local discovery (mDNS)**: not implemented. Useful for LAN setups; small
   feature add.
-- **DHT-based peer introduction**: the cryptographic primitive
-  (`liun-overlay::peer_intro`) exists but isn't yet wired so that an existing
-  peer can introduce a new one *over the DHT*. Today, introductions still
-  happen via shared `(id, addr)` knowledge.
+- **DHT-based peer introduction**: peers discover each other via DHT
+  and establish trust through auto-trust pipeline bursts (real Liun
+  handshake, randomized timing). No separate introduction protocol.
 - **Eviction policies**: bucket-full case currently rejects new contacts
   rather than ping-evicting the oldest. Functional but not strictly Kademlia-spec.

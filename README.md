@@ -28,7 +28,7 @@ OF SUCH DAMAGE.
 
 Production Rust implementation of the Liu protocol suite (Liup + Liun).
 
-**255 Rust tests + 16 forge tests. Zero failures.**
+**228 Rust tests + 16 forge tests + 21 Kani proofs. Zero failures.**
 
 ## Why this exists
 
@@ -131,26 +131,13 @@ crates/
 │   ├── message       Binary UDP wire protocol (PING/FIND/NODES, no signatures)
 │   └── node          Async server + iterative parallel lookup (ALPHA=3)
 │
-├── liun-uss/         Threshold signatures (9 tests)
-│   ├── lagrange      Interpolation: basis, evaluate, reconstruct
-│   ├── shamir        Split (k-of-n) and reconstruct
-│   ├── signer        Partial signing + combination via Lagrange
-│   └── verifier      Deterministic polynomial consistency check
-│
-├── liun-dkg/         Distributed key generation (3 tests)
-│   └── lib           Generate, distribute, verify, combine shares
 │
 ├── liun-overlay/     Network overlay (17 tests, +4 integration)
 │   ├── bootstrap     Multi-path PSK from k-of-k XOR over relays (no pre-shared key)
 │   ├── relay_client  HTTP client for bootstrap dead-drops (POST/GET shares)
 │   ├── relay_server  HTTP server for bootstrap dead-drops (used by liun-relay)
 │   ├── directory     TOML parser for relays.toml
-│   ├── peer_intro    XOR combination from introducer components
-│   └── trust         Personalized PageRank with Sybil resistance
-│
-├── liun-consensus/   Trust-weighted BFT (9 tests)
-│   ├── lib           Accept/reject with trust threshold
-│   └── committee     Dynamic rolling committee: configurable size + rotation rate
+│   └── trust         Personalized PageRank + Bayesian auto-trust
 │
 ├── liun-receipts/    Session-level ITS receipts, OFF the data path (15 tests + 3 e2e)
 │   ├── ReceiptClaim, SignedClaim, ClaimBatch  (Wegman-Carter over GF(M61))
@@ -179,11 +166,8 @@ contracts/
 | Test | What it proves |
 |---|---|
 | `e2e_no_psk` | Two strangers with NO pre-shared key → ITS key agreement over TCP |
-| `e2e_network` | 5-node full protocol: bootstrap → channels → DKG → sign → verify → consensus |
-| `e2e_scale` | 50 nodes, 445 channels, committee selection, 5 epoch rotations, 10 signatures |
 | `e2e_parallel` | Parallel channel throughput: 1→50 channels, measuring Mbps scaling |
 | `e2e_two_processes` | Full lifecycle: bootstrap → exchange → persist → restart → reconnect |
-| `e2e_ten_nodes` | 10-node full mesh: 45 pairwise exchanges, DKG, 20 signatures, consensus (13ms) |
 
 ## Chat Demo
 
@@ -400,9 +384,7 @@ The Rust implementation matches the proved algorithms:
 - `mac` Horner evaluation matches `WegmanCarter.lean` (forgery ≤ d/|F|)
 - `noise` Box-Muller matches `Theorem1.lean` (TV bound on sign bits)
 - `pool` recycling matches `XORBias.lean` (constant per-bit security)
-- `shamir` / `lagrange` match `ShamirPrivacy.lean` (Vandermonde invertibility)
-- `trust` PageRank matches `SybilResistance.lean` (attack trust bounded)
-- `committee` + `consensus` match `Composition.lean` (union bound)
+- `trust` auto-trust matches `SybilResistance.lean` (attack trust bounded)
 - `pipeline courier` matches `PipelineCourier.lean` (self-rekeying chain induction: Eve's bias on every key = 0 for any number of chunks T, proved by `Nat.rec`; per-chunk forgery < 10⁻¹⁴; 1 GB total < 10⁻⁸)
 
 ## Configuration
